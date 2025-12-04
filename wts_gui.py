@@ -504,6 +504,12 @@ class WtsGuiApp(tk.Tk):
 			tree.insert("", "end", values=(record['result'], record['folder']), tags=(record['result'],))
 
 	def _analyze_results(self):
+		# Save current filter date
+		self.session_settings['result_filter_date'] = self.result_filter_date.get()
+		# Save current role filter
+		self.session_settings['test_result_role'] = self.result_role_filter.get()
+		self._save_session()
+
 		# Clear existing results
 		for item in self.result_tree.get_children():
 			self.result_tree.delete(item)
@@ -671,6 +677,10 @@ class WtsGuiApp(tk.Tk):
 			self.config_file_path.set(config_path)
 			self._load_config_data()
 
+		# Capture saved role filters before loading XML, as _load_xml_data resets them and triggers a save.
+		saved_test_exec_role = self.session_settings.get('test_execution_role')
+		saved_test_result_role = self.session_settings.get('test_result_role')
+
 		xml_path = self.session_settings.get('xml_path')
 		if xml_path and os.path.exists(xml_path):
 			self.xml_file_path.set(xml_path)
@@ -682,10 +692,28 @@ class WtsGuiApp(tk.Tk):
 			if editor_cmd:
 				self.linux_editor_command = [editor_cmd]
 
+		# Load saved date filters
+		log_date = self.session_settings.get('log_filter_date')
+		if log_date:
+			self.log_filter_date.set(log_date)
+
+		result_date = self.session_settings.get('result_filter_date')
+		if result_date:
+			self.result_filter_date.set(result_date)
+		
+		# Restore saved role filters
+		if saved_test_exec_role:
+			self.test_role_filter.set(saved_test_exec_role)
+			# Force update display to filter the list based on the restored role
+			self._update_test_execution_display()
+
+		if saved_test_result_role:
+			self.result_role_filter.set(saved_test_result_role)
+
 	def _save_session(self):
 		"""Saves file paths to the settings file."""
 		with open(self.settings_file, 'w', encoding='utf-8') as f:
-			json.dump(self.session_settings, f)
+			json.dump(self.session_settings, f, indent=4)
 
 	def _load_config_data(self):
 		filepath = self.config_file_path.get()
@@ -1070,6 +1098,10 @@ class WtsGuiApp(tk.Tk):
 		self._populate_test_execution_list(self.xml_test_case_names)
 
 	def _update_test_execution_display(self, *args):
+		# Save current role filter
+		self.session_settings['test_execution_role'] = self.test_role_filter.get()
+		self._save_session()
+
 		role = self.test_role_filter.get()
 		search_term = self.test_execution_search_term.get().lower()
 
@@ -1353,6 +1385,10 @@ class WtsGuiApp(tk.Tk):
 
 	def _load_log_folders(self, *args):
 		"""Scans and displays log folders, applying date filter if specified."""
+		# Save current filter date
+		self.session_settings['log_filter_date'] = self.log_filter_date.get()
+		self._save_session()
+
 		for item in self.log_folder_tree.get_children():
 			self.log_folder_tree.delete(item)
 
