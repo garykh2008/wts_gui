@@ -80,11 +80,19 @@ class WtsGuiApp(tk.Tk):
 		self.upload_to_tms_var = tk.BooleanVar()
 		self.current_process = None # Track the running process
 
+		self.selection_canvas = None
+
 		self._create_menu()
 		self._create_widgets()
 
 		# Bind closing event to ensure background processes are killed
 		self.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+		if os.name == 'nt':
+			self.bind_all("<MouseWheel>", self._on_global_mousewheel)
+		else:
+			self.bind_all("<Button-4>", self._on_global_mousewheel)
+			self.bind_all("<Button-5>", self._on_global_mousewheel)
 
 		if not self._check_environment():
 			self.withdraw() # Hide the main window before showing the error
@@ -391,6 +399,7 @@ class WtsGuiApp(tk.Tk):
 
 		# Scrollable frame for checkboxes
 		canvas = tk.Canvas(self.selection_frame)
+		self.selection_canvas = canvas
 		scrollbar = ttk.Scrollbar(self.selection_frame, orient="vertical", command=canvas.yview)
 		self.test_checkbutton_frame = ttk.Frame(canvas)
 		canvas.configure(yscrollcommand=scrollbar.set)
@@ -1941,6 +1950,21 @@ class WtsGuiApp(tk.Tk):
 				self._save_session()
 				print(f"Found and cached text editor: {editor}")
 				return
+
+	def _on_global_mousewheel(self, event):
+		if not self.selection_canvas:
+			return
+		try:
+			widget = self.winfo_containing(event.x_root, event.y_root)
+			if widget and str(widget).startswith(str(self.selection_canvas)):
+				if os.name == 'nt':
+					self.selection_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+				elif event.num == 4:
+					self.selection_canvas.yview_scroll(-1, "units")
+				elif event.num == 5:
+					self.selection_canvas.yview_scroll(1, "units")
+		except Exception:
+			pass
 
 if __name__ == "__main__":
 	app = WtsGuiApp()
