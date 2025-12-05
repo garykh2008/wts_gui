@@ -24,7 +24,9 @@ class WtsGuiApp(tk.Tk):
 	def __init__(self):
 
 		super().__init__()
-		self.title("WTS GUI")
+		self.APP_VERSION = "1.0"
+		self.app_initialized = False # Flag to prevent overwriting settings during initialization
+		self.title(f"WTS GUI v{self.APP_VERSION}")
 		self.geometry("1024x768")
 
 		self.config_file_path = tk.StringVar()
@@ -39,7 +41,12 @@ class WtsGuiApp(tk.Tk):
 		self.viewer_role_filter = tk.StringVar(value="All")
 		self.test_execution_search_term = tk.StringVar()
 		self.test_role_filter = tk.StringVar(value="All")
+		self.result_role_filter = tk.StringVar(value="All")
 		self.log_filter_date = tk.StringVar()
+		self.filter_not_pass_only = tk.BooleanVar(value=False)
+		self.all_testbeds = [] # Cache for all unique testbeds found in XML
+		self.ignore_testbeds_vars = {} # BooleanVars for ignore checkboxes in Advanced Options
+		self.include_testbeds_vars = {} # BooleanVars for include checkboxes in Advanced Options
 
 		# --- TmsClient.conf related ---
 		# --- Path setup for bundled and script execution ---
@@ -51,7 +58,21 @@ class WtsGuiApp(tk.Tk):
 		else:
 			# Running as a normal .py script, script is in 'bin'
 			bin_dir = os.path.dirname(os.path.abspath(__file__))
+
+		# Determine if we should use native Windows executable or WSL
+		self.use_wsl = False
 		self.wts_executable_path = os.path.join(bin_dir, 'wts')
+
+		if os.name == 'nt':
+			# Check if native Windows executable exists
+			wts_exe_path = os.path.join(bin_dir, 'wts.exe')
+			if os.path.exists(wts_exe_path):
+				self.wts_executable_path = wts_exe_path
+			else:
+				# Fallback to WSL if wts.exe is missing
+				self.use_wsl = True
+				self.wts_executable_path = os.path.join(bin_dir, 'wts')
+
 		self.log_dir_path = os.path.join(bin_dir, 'log')
 		wts_root_dir = os.path.dirname(bin_dir)
 		self.tms_client_conf_path = os.path.join(wts_root_dir, 'config', 'TmsClient.conf')
@@ -59,6 +80,7 @@ class WtsGuiApp(tk.Tk):
 		self.upload_to_tms_var = tk.BooleanVar()
 		self.current_process = None # Track the running process
 
+		self._create_menu()
 		self._create_widgets()
 
 		# Bind closing event to ensure background processes are killed
@@ -75,44 +97,153 @@ class WtsGuiApp(tk.Tk):
 		self._find_and_cache_text_editor()
 		self._load_log_folders()
 
+		self.app_initialized = True
+
+	def _create_menu(self):
+		menubar = tk.Menu(self)
+		self.config(menu=menubar)
+
+		help_menu = tk.Menu(menubar, tearoff=0)
+		menubar.add_cascade(label="Help", menu=help_menu)
+		help_menu.add_command(label="Documentation", command=self._show_documentation)
+		help_menu.add_command(label="About", command=self._show_about)
+
+	def _show_about(self):
+		about_text = (
+			f"WTS GUI\n"
+			f"Version: {self.APP_VERSION}\n\n"
+			f"A Graphical User Interface for the Wireless Test System (WTS).\n"
+			f"Provides easy configuration, test execution, and result analysis.\n\n"
+			f"Copyright © 2025 Realtek Semiconductor Corp. All rights reserved.\n"
+		)
+		messagebox.showinfo("About WTS GUI", about_text)
+
+	def _show_documentation(self):
+		doc_window = tk.Toplevel(self)
+		doc_window.title("Documentation")
+		doc_window.geometry("800x600")
+
+		text_area = tk.Text(doc_window, wrap=tk.WORD, padx=10, pady=10)
+		text_area.pack(fill=tk.BOTH, expand=True)
+
+		# Add Scrollbar
+		scrollbar = ttk.Scrollbar(doc_window, orient="vertical", command=text_area.yview)
+		scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+		text_area.config(yscrollcommand=scrollbar.set)
+		scrollbar.place(relx=1, rely=0, relheight=1, anchor="ne") # Overlay scrollbar
+
+		# Configure markdown tags
+		text_area.tag_config("h1", font=("Helvetica", 18, "bold"), spacing3=10)
+		text_area.tag_config("h2", font=("Helvetica", 14, "bold"), spacing3=5)
+		text_area.tag_config("h3", font=("Helvetica", 12, "bold"), spacing3=2)
+		text_area.tag_config("bold", font=("Helvetica", 10, "bold"))
+		text_area.tag_config("code", font=("Courier New", 10), background="#f0f0f0")
+		text_area.tag_config("list", lmargin1=20, lmargin2=30)
+
+		# Try to load README.md
+		content = "Documentation not found (README.md)."
+
+		# Determine path based on execution mode
+		if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+			# Running in a PyInstaller bundle
+			# When bundled with --add-data, files are in sys._MEIPASS
+			potential_paths = [os.path.join(sys._MEIPASS, "README.md")]
+		else:
+			# Running as a normal .py script
+			base_dir = os.path.dirname(os.path.abspath(__file__))
+			potential_paths = [
+				os.path.join(base_dir, "README.md"),
+				os.path.join(os.path.dirname(base_dir), "README.md"), # If in bin/
+				"README.md"
+			]
+
+		for p in potential_paths:
+			if os.path.exists(p):
+				try:
+					with open(p, "r", encoding="utf-8") as f:
+						content = f.read()
+					break
+				except Exception:
+					pass
+
+		self._render_markdown(text_area, content)
+		text_area.config(state=tk.DISABLED)
+
+	def _render_markdown(self, text_widget, content):
+		for line in content.splitlines():
+			line_strip = line.strip()
+			tags = ()
+
+			if line.startswith("# "):
+				tags = ("h1",)
+				line = line[2:]
+			elif line.startswith("## "):
+				tags = ("h2",)
+				line = line[3:]
+			elif line.startswith("### "):
+				tags = ("h3",)
+				line = line[4:]
+			elif line_strip.startswith("* ") or line_strip.startswith("- "):
+				tags = ("list",)
+				# Keep indentation but replace bullet
+				# Simple logic: just render line
+
+			# Handle inline bold (**text**) - Simple implementation
+			# Split by **, toggle bold tag
+			parts = re.split(r'(\*\*.*?\*\*)', line)
+			for part in parts:
+				if part.startswith("**") and part.endswith("**"):
+					text_widget.insert(tk.END, part[2:-2], tags + ("bold",))
+				elif "`" in part: # Basic code block handling in line
+					subparts = re.split(r'(`.*?`)', part)
+					for subpart in subparts:
+						if subpart.startswith("`") and subpart.endswith("`"):
+							text_widget.insert(tk.END, subpart[1:-1], tags + ("code",))
+						else:
+							text_widget.insert(tk.END, subpart, tags)
+				else:
+					text_widget.insert(tk.END, part, tags)
+
+			text_widget.insert(tk.END, "\n", tags)
+
 	def _create_widgets(self):
 		# Create main frame
 		main_frame = ttk.Frame(self, padding="10")
 		main_frame.pack(fill=tk.BOTH, expand=True)
 
 		# Create notebook (tab controller)
-		notebook = ttk.Notebook(main_frame)
-		notebook.pack(fill=tk.BOTH, expand=True, pady=10)
+		self.notebook = ttk.Notebook(main_frame)
+		self.notebook.pack(fill=tk.BOTH, expand=True, pady=10)
 
 		# --- AllInitConfig Tab ---
-		config_tab = ttk.Frame(notebook)
-		notebook.add(config_tab, text="AllInitConfig Editor")
-		self._create_config_tab(config_tab)
-
-		# --- MasterTestInfo Tab ---
-		xml_tab = ttk.Frame(notebook)
-		notebook.add(xml_tab, text="MasterTestInfo Viewer")
-		self._create_xml_tab(xml_tab)
+		self.config_tab = ttk.Frame(self.notebook)
+		self.notebook.add(self.config_tab, text="AllInitConfig Editor")
+		self._create_config_tab(self.config_tab)
 
 		# --- Test Execution Tab ---
-		execution_tab = ttk.Frame(notebook)
-		notebook.add(execution_tab, text="Test Execution")
-		self._create_test_execution_tab(execution_tab)
-
-		# --- TmsClient.conf Tab ---
-		tms_tab = ttk.Frame(notebook)
-		notebook.add(tms_tab, text="TmsClient.conf Editor")
-		self._create_tms_tab(tms_tab)
-
-		# --- Log Viewer Tab ---
-		log_tab = ttk.Frame(notebook)
-		notebook.add(log_tab, text="Log Viewer")
-		self._create_log_viewer_tab(log_tab)
+		self.execution_tab = ttk.Frame(self.notebook)
+		self.notebook.add(self.execution_tab, text="Test Execution")
+		self._create_test_execution_tab(self.execution_tab)
 
 		# --- Test Result Tab ---
-		result_tab = ttk.Frame(notebook)
-		notebook.add(result_tab, text="Test Result")
-		self._create_test_result_tab(result_tab)
+		self.result_tab = ttk.Frame(self.notebook)
+		self.notebook.add(self.result_tab, text="Test Result")
+		self._create_test_result_tab(self.result_tab)
+
+		# --- Log Viewer Tab ---
+		self.log_tab = ttk.Frame(self.notebook)
+		self.notebook.add(self.log_tab, text="Log Viewer")
+		self._create_log_viewer_tab(self.log_tab)
+
+		# --- MasterTestInfo Tab ---
+		self.xml_tab = ttk.Frame(self.notebook)
+		self.notebook.add(self.xml_tab, text="MasterTestInfo Viewer")
+		self._create_xml_tab(self.xml_tab)
+
+		# --- TmsClient.conf Tab ---
+		self.tms_tab = ttk.Frame(self.notebook)
+		self.notebook.add(self.tms_tab, text="TmsClient.conf Editor")
+		self._create_tms_tab(self.tms_tab)
 
 	def _create_config_tab(self, parent):
 		# File selection frame
@@ -161,13 +292,6 @@ class WtsGuiApp(tk.Tk):
 		save_button.pack(pady=10)
 
 	def _create_xml_tab(self, parent):
-		# File selection frame
-		file_frame = ttk.LabelFrame(parent, text="XML File Path", padding="10")
-		file_frame.pack(fill=tk.X, padx=5, pady=5)
-
-		ttk.Entry(file_frame, textvariable=self.xml_file_path, width=80).pack(side=tk.LEFT, fill=tk.X, expand=True)
-		ttk.Button(file_frame, text="Browse...", command=self._browse_xml_file).pack(side=tk.LEFT, padx=5)
-
 		# Paned window for left/right view
 		paned_window = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
 		paned_window.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -250,22 +374,24 @@ class WtsGuiApp(tk.Tk):
 		search_frame.pack(fill=tk.X, pady=(5,0))
 		ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
 		search_entry = ttk.Entry(search_frame, textvariable=self.test_execution_search_term)
-		search_entry.pack(fill=tk.X, expand=True)
+		search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 		self.test_execution_search_term.trace_add("write", self._update_test_execution_display)
 
+		ttk.Button(search_frame, text="Advanced Option", command=self._show_advanced_options_popup).pack(side=tk.LEFT, padx=(5, 0))
+
 		# Test case selection frame
-		selection_frame = ttk.LabelFrame(left_pane, text="Test Case Selection", padding="10")
-		selection_frame.pack(fill=tk.BOTH, expand=True)
+		self.selection_frame = ttk.LabelFrame(left_pane, text="Test Case Selection", padding="10")
+		self.selection_frame.pack(fill=tk.BOTH, expand=True)
 
 		# Buttons for selection control
-		select_button_frame = ttk.Frame(selection_frame)
+		select_button_frame = ttk.Frame(self.selection_frame)
 		select_button_frame.pack(fill=tk.X, pady=(0, 5))
 		ttk.Button(select_button_frame, text="Select All", command=self._select_all_tests).pack(side=tk.LEFT)
 		ttk.Button(select_button_frame, text="Deselect All", command=self._deselect_all_tests).pack(side=tk.LEFT, padx=5)
 
 		# Scrollable frame for checkboxes
-		canvas = tk.Canvas(selection_frame)
-		scrollbar = ttk.Scrollbar(selection_frame, orient="vertical", command=canvas.yview)
+		canvas = tk.Canvas(self.selection_frame)
+		scrollbar = ttk.Scrollbar(self.selection_frame, orient="vertical", command=canvas.yview)
 		self.test_checkbutton_frame = ttk.Frame(canvas)
 		canvas.configure(yscrollcommand=scrollbar.set)
 
@@ -307,6 +433,11 @@ class WtsGuiApp(tk.Tk):
 		self.terminal_output.tag_configure("pass", foreground="lime green")
 		self.terminal_output.tag_configure("fail", foreground="red")
 		self.terminal_output.tag_configure("info", foreground="cyan")
+
+	def _update_selection_count(self):
+		total = len(self.test_checkbuttons)
+		selected = sum(1 for var in self.test_checkbuttons.values() if var.get())
+		self.selection_frame.config(text=f"Test Case Selection ({selected}/{total})")
 
 	def _create_tms_tab(self, parent):
 		# Action buttons frame
@@ -395,6 +526,10 @@ class WtsGuiApp(tk.Tk):
 		self.log_file_tree.configure(yscrollcommand=log_file_scrollbar.set)
 		self.log_file_tree.bind("<Double-1>", self._open_log_file)
 
+	def _save_result_role(self):
+		self.session_settings['test_result_role'] = self.result_role_filter.get()
+		self._save_session()
+
 	def _create_test_result_tab(self, parent):
 		# --- Filter Frame ---
 		filter_frame = ttk.LabelFrame(parent, text="Analysis Options", padding="10")
@@ -402,10 +537,9 @@ class WtsGuiApp(tk.Tk):
 
 		# Role Filter
 		ttk.Label(filter_frame, text="Role:").pack(side=tk.LEFT, padx=(0, 5))
-		self.result_role_filter = tk.StringVar(value="All")
-		ttk.Radiobutton(filter_frame, text="All", variable=self.result_role_filter, value="All").pack(side=tk.LEFT)
-		ttk.Radiobutton(filter_frame, text="AP", variable=self.result_role_filter, value="AP").pack(side=tk.LEFT, padx=5)
-		ttk.Radiobutton(filter_frame, text="STA", variable=self.result_role_filter, value="STA").pack(side=tk.LEFT, padx=(0, 20))
+		ttk.Radiobutton(filter_frame, text="All", variable=self.result_role_filter, value="All", command=self._save_result_role).pack(side=tk.LEFT)
+		ttk.Radiobutton(filter_frame, text="AP", variable=self.result_role_filter, value="AP", command=self._save_result_role).pack(side=tk.LEFT, padx=5)
+		ttk.Radiobutton(filter_frame, text="STA", variable=self.result_role_filter, value="STA", command=self._save_result_role).pack(side=tk.LEFT, padx=(0, 20))
 
 		ttk.Label(filter_frame, text="Analyze logs on or after:").pack(side=tk.LEFT, padx=(0, 5))
 
@@ -428,11 +562,11 @@ class WtsGuiApp(tk.Tk):
 		ttk.Checkbutton(filter_frame, text="Hide NT", variable=self.hide_nt_var, command=self._on_hide_nt_toggle).pack(side=tk.LEFT)
 
 		# --- Results Frame ---
-		results_frame = ttk.LabelFrame(parent, text="Analysis Results", padding="10")
-		results_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+		self.results_frame = ttk.LabelFrame(parent, text="Analysis Results", padding="10")
+		self.results_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
 		columns = ("Test Case", "Result", "Log Folder")
-		self.result_tree = ttk.Treeview(results_frame, columns=columns, show="headings")
+		self.result_tree = ttk.Treeview(self.results_frame, columns=columns, show="headings")
 
 		# Define headings
 		self.result_tree.heading("Test Case", text="Test Case")
@@ -447,7 +581,7 @@ class WtsGuiApp(tk.Tk):
 		self.result_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
 		# Scrollbar
-		scrollbar = ttk.Scrollbar(results_frame, orient="vertical", command=self.result_tree.yview)
+		scrollbar = ttk.Scrollbar(self.results_frame, orient="vertical", command=self.result_tree.yview)
 		scrollbar.pack(side=tk.RIGHT, fill="y")
 		self.result_tree.configure(yscrollcommand=scrollbar.set)
 
@@ -459,7 +593,7 @@ class WtsGuiApp(tk.Tk):
 		# Right-click binding for history
 		# Bind Button-3 (Right Click) for all platforms as it is the standard context menu trigger.
 		self.result_tree.bind("<Button-3>", self._show_history_popup)
-		
+
 		# On Linux/macOS, Button-2 is sometimes used for context menus or middle click.
 		# Adding it as a fallback/alternative binding.
 		if os.name != "nt":
@@ -488,7 +622,7 @@ class WtsGuiApp(tk.Tk):
 		tree.heading("Log Folder", text="Log Folder")
 		tree.column("Result", width=80, anchor="center")
 		tree.column("Log Folder", width=450)
-		
+
 		tree.tag_configure('PASS', background='#ccffcc')
 		tree.tag_configure('FAIL', background='#ffcccc')
 
@@ -564,7 +698,7 @@ class WtsGuiApp(tk.Tk):
 				if date_match:
 					folder_date = datetime.strptime(date_match.group(1), "%b-%d-%Y").date()
 					if filter_date and folder_date < filter_date:
-						continue 
+						continue
 			except ValueError:
 				if filter_date: continue
 
@@ -573,10 +707,10 @@ class WtsGuiApp(tk.Tk):
 				for filename in os.listdir(folder_path):
 					if filename.startswith("log_") and filename.endswith(".log"):
 						test_case_name = filename[4:-4]
-						
+
 						# Only process if this is one of our target test cases
 						if test_case_name in target_test_cases:
-							
+
 							# Determine PASS/FAIL
 							result = "FAIL"
 							try:
@@ -589,7 +723,7 @@ class WtsGuiApp(tk.Tk):
 							# Append to history
 							if test_case_name not in self.test_history_map:
 								self.test_history_map[test_case_name] = []
-							
+
 							self.test_history_map[test_case_name].append({
 								'result': result,
 								'folder': folder_name,
@@ -611,7 +745,7 @@ class WtsGuiApp(tk.Tk):
 			target_test_cases = [name for name in target_test_cases if name.split('-', 1)[-1].startswith('4.')]
 		elif role == "STA":
 			target_test_cases = [name for name in target_test_cases if name.split('-', 1)[-1].startswith('5.')]
-		
+
 		self._populate_results_tree(target_test_cases)
 
 	def _populate_results_tree(self, test_cases):
@@ -621,20 +755,37 @@ class WtsGuiApp(tk.Tk):
 
 		hide_nt = self.hide_nt_var.get()
 
+		count_pass = 0
+		count_fail = 0
+		count_nt = 0
+		total_visible = 0
+
 		for test_case in test_cases:
 			history = self.test_history_map.get(test_case, [])
-			
+
+			result = "NT"
+			folder = ""
+
 			if history:
-				# Use the last item (newest) for the main view
 				latest = history[-1]
-				values = (test_case, latest['result'], latest['folder']) # Log File removed
-				tags = (latest['result'],)
-				self.result_tree.insert("", "end", values=values, tags=tags)
+				result = latest['result']
+				folder = latest['folder']
+
+			if result == "PASS":
+				count_pass += 1
+			elif result == "NT":
+				count_nt += 1
 			else:
-				if not hide_nt:
-					values = (test_case, "NT", "")
-					tags = ('NT',)
-					self.result_tree.insert("", "end", values=values, tags=tags)
+				count_fail += 1 # FAIL or ERROR
+
+			if not (hide_nt and result == "NT"):
+				values = (test_case, result, folder)
+				tags = (result if result != "NT" else "NT",)
+				self.result_tree.insert("", "end", values=values, tags=tags)
+				total_visible += 1
+
+		# Update frame text with counts
+		self.results_frame.config(text=f"Analysis Results (PASS: {count_pass}, FAIL: {count_fail}, NT: {count_nt}, Total: {len(test_cases)})")
 
 	def _browse_config_file(self):
 		filepath = filedialog.askopenfilename(
@@ -672,20 +823,17 @@ class WtsGuiApp(tk.Tk):
 			except Exception as e:
 				print(f"Could not load last session settings: {e}")
 
+		# Capture saved role filters and other settings BEFORE loading config/XML,
+		# because loading XML resets filters and might trigger auto-save, which would overwrite them with defaults.
+		saved_test_exec_role = self.session_settings.get('test_execution_role')
+		saved_test_result_role = self.session_settings.get('test_result_role')
+		saved_viewer_role = self.session_settings.get('viewer_role')
+
 		config_path = self.session_settings.get('config_path')
 		if config_path and os.path.exists(config_path):
 			self.config_file_path.set(config_path)
 			self._load_config_data()
 
-		# Capture saved role filters before loading XML, as _load_xml_data resets them and triggers a save.
-		saved_test_exec_role = self.session_settings.get('test_execution_role')
-		saved_test_result_role = self.session_settings.get('test_result_role')
-
-		xml_path = self.session_settings.get('xml_path')
-		if xml_path and os.path.exists(xml_path):
-			self.xml_file_path.set(xml_path)
-			self._load_xml_data()
-		
 		# Load cached editor for non-windows systems
 		if os.name != 'nt':
 			editor_cmd = self.session_settings.get('linux_editor_cmd')
@@ -700,18 +848,51 @@ class WtsGuiApp(tk.Tk):
 		result_date = self.session_settings.get('result_filter_date')
 		if result_date:
 			self.result_filter_date.set(result_date)
-		
+
 		# Restore saved role filters
 		if saved_test_exec_role:
 			self.test_role_filter.set(saved_test_exec_role)
-			# Force update display to filter the list based on the restored role
+
+		# Restore Not Pass Only filter
+		saved_not_pass_only = self.session_settings.get('filter_not_pass_only', False)
+		self.filter_not_pass_only.set(saved_not_pass_only)
+
+		# Restore Ignored Testbeds
+		saved_ignored_testbeds = self.session_settings.get('ignored_testbeds', [])
+		if saved_ignored_testbeds and self.all_testbeds:
+			for tb in self.all_testbeds:
+				if tb not in self.ignore_testbeds_vars:
+					self.ignore_testbeds_vars[tb] = tk.BooleanVar(value=False)
+				if tb in saved_ignored_testbeds:
+					self.ignore_testbeds_vars[tb].set(True)
+
+		# Restore Included Testbeds
+		saved_included_testbeds = self.session_settings.get('included_testbeds', [])
+		if saved_included_testbeds and self.all_testbeds:
+			for tb in self.all_testbeds:
+				if tb not in self.include_testbeds_vars:
+					self.include_testbeds_vars[tb] = tk.BooleanVar(value=False)
+				if tb in saved_included_testbeds:
+					self.include_testbeds_vars[tb].set(True)
+
+		# Force update display to filter the list based on the restored settings
+		if saved_test_exec_role or saved_not_pass_only or saved_ignored_testbeds or saved_included_testbeds:
 			self._update_test_execution_display()
 
 		if saved_test_result_role:
 			self.result_role_filter.set(saved_test_result_role)
 
+		if saved_viewer_role:
+			self.viewer_role_filter.set(saved_viewer_role)
+			self._update_viewer_display()
+
+		# Removed: Auto-analyze results on load as per user request. Analysis will only happen on button click.
+
 	def _save_session(self):
 		"""Saves file paths to the settings file."""
+		if not self.app_initialized:
+			return
+
 		with open(self.settings_file, 'w', encoding='utf-8') as f:
 			json.dump(self.session_settings, f, indent=4)
 
@@ -787,6 +968,12 @@ class WtsGuiApp(tk.Tk):
 		self.session_settings['config_path'] = filepath
 		self._save_session()
 
+		# Automatically load MasterTestInfo.xml from the same directory
+		config_dir = os.path.dirname(filepath)
+		xml_path = os.path.join(config_dir, 'MasterTestInfo.xml')
+		self.xml_file_path.set(xml_path)
+		self._load_xml_data()
+
 	def _create_device_toggles(self):
 		# Clear existing toggles
 		for widget in self.ap_toggles_frame.winfo_children(): widget.destroy()
@@ -813,6 +1000,38 @@ class WtsGuiApp(tk.Tk):
 
 		self.ap_toggles_frame.pack(fill=tk.X, expand=True, pady=2)
 		self.sta_toggles_frame.pack(fill=tk.X, expand=True, pady=2)
+
+	def _is_testbed_enabled(self, testbed_name):
+		"""
+		Checks if a testbed is enabled in the configuration.
+		A testbed is considered disabled if ANY of its associated devices (AP or STA) are disabled.
+		"""
+		if not hasattr(self, 'device_lines') or not self.device_lines:
+			return True # Assume enabled if config not loaded or no devices found
+
+		# Find related devices: {testbed_name}_ap or {testbed_name}_sta
+		related_devices = []
+		for device_name in self.device_lines.keys():
+			if device_name == f"{testbed_name}_ap" or device_name == f"{testbed_name}_sta":
+				related_devices.append(device_name)
+
+		if not related_devices:
+			return True # No matching devices found, assume enabled (or virtual)
+
+		for device_name in related_devices:
+			# Check if this device is enabled
+			is_device_enabled = True
+			for line_idx in self.device_lines.get(device_name, []):
+				line_content = self.config_data[line_idx]['modified'] # Check modified content
+				if f'wfa_control_agent_{device_name}!' in line_content:
+					if line_content.strip().startswith('#'):
+						is_device_enabled = False
+						break
+
+			if not is_device_enabled:
+				return False # If any device is disabled, the testbed is disabled
+
+		return True
 
 	def _on_config_tree_double_click(self, event):
 		# Identify the clicked region
@@ -856,6 +1075,19 @@ class WtsGuiApp(tk.Tk):
 	def _save_cell_edit(self, entry, item_id, column):
 		new_value = entry.get()
 		self.config_tree.set(item_id, column, new_value)
+
+		# Update the underlying data source so it can be saved
+		line_idx = int(item_id)
+		item_data = self.config_data[line_idx]
+		key = self.config_tree.item(item_id, "values")[0]
+
+		if item_data['type'] == 'define_kv_pair':
+			# Format: define!$key!value!
+			item_data['modified'] = f"define!{key}!{new_value}!\n"
+		elif item_data['type'] == 'kv_pair':
+			# Format: key!value!
+			item_data['modified'] = f"{key}!{new_value}!\n"
+
 		entry.destroy()
 
 	def _edit_ip_port_popup(self, item_id):
@@ -873,6 +1105,8 @@ class WtsGuiApp(tk.Tk):
 		top = tk.Toplevel(self) #NOSONAR
 		top.title(f"Edit: {key}")
 		top.transient(self)
+		# Wait for window to be visible before grabbing focus (fixes Linux issue)
+		top.wait_visibility()
 		top.grab_set()
 
 		frame = ttk.Frame(top, padding="10")
@@ -893,6 +1127,13 @@ class WtsGuiApp(tk.Tk):
 			new_port = port_var.get()
 			new_value_str = f"ipaddr={new_ip},port={new_port}"
 			self.config_tree.set(item_id, "Value", new_value_str)
+
+			# Update underlying data
+			line_idx = int(item_id)
+			item_data = self.config_data[line_idx]
+			# ip_port_pair is essentially a kv_pair with specific value format
+			item_data['modified'] = f"{key}!{new_value_str}!\n"
+
 			top.destroy()
 
 		save_button = ttk.Button(frame, text="Save", command=save_and_close)
@@ -916,6 +1157,9 @@ class WtsGuiApp(tk.Tk):
 
 		# For simplicity, just reload the treeview from the modified data
 		self._reload_treeview_from_config_data()
+
+		# Update test execution display as filtering might change based on enabled devices
+		self._update_test_execution_display()
 
 	def _save_config_file(self):
 		filepath = self.config_file_path.get()
@@ -980,8 +1224,8 @@ class WtsGuiApp(tk.Tk):
 			self.xml_tree.delete(item)
 		self.xml_test_cases.clear()
 		self.xml_test_case_names.clear()
-		self.xml_search_term.set("")
-		self.viewer_role_filter.set("All")
+
+		# NOTE: Do not reset filters here (search_term, viewer_role_filter) as they might be preserved.
 
 		# Parse XML
 		try:
@@ -996,11 +1240,22 @@ class WtsGuiApp(tk.Tk):
 					if name: # Ensure the tag is not empty
 						self.xml_test_cases[name] = test_case_element
 
-				self.xml_test_case_names = sorted(self.xml_test_cases.keys())
-				self._update_test_case_listbox(self.xml_test_case_names)
+				# Extract all unique testbeds
+				unique_testbeds = set()
+				for element in self.xml_test_cases.values():
+					tb_list_elem = element.find('TB_LIST')
+					if tb_list_elem is not None and tb_list_elem.text:
+						# Assuming comma-separated
+						tbs = [tb.strip() for tb in tb_list_elem.text.split(',')]
+						unique_testbeds.update(tbs)
+				self.all_testbeds = sorted(list(unique_testbeds))
 
-				# Reset filters and populate the test execution list
-				self._reset_and_populate_execution_list()
+				self.xml_test_case_names = sorted(self.xml_test_cases.keys())
+
+				# Refresh displays with loaded data and current filters
+				self._update_test_case_listbox(self.xml_test_case_names)
+				self._update_viewer_display()
+				self._update_test_execution_display()
 
 				self.session_settings['xml_path'] = filepath
 				self._save_session()
@@ -1022,9 +1277,11 @@ class WtsGuiApp(tk.Tk):
 		# Create new checkbuttons
 		for name in test_names:
 			var = tk.BooleanVar(value=False)
-			cb = ttk.Checkbutton(self.test_checkbutton_frame, text=name, variable=var)
+			cb = ttk.Checkbutton(self.test_checkbutton_frame, text=name, variable=var, command=self._update_selection_count)
 			cb.pack(anchor=tk.W, fill=tk.X)
 			self.test_checkbuttons[name] = var
+
+		self._update_selection_count()
 
 	def _on_test_case_select(self, event):
 		# Clear previous details
@@ -1087,10 +1344,12 @@ class WtsGuiApp(tk.Tk):
 		# This should only select all VISIBLE tests
 		for name, var in self.test_checkbuttons.items():
 			var.set(True)
+		self._update_selection_count()
 
 	def _deselect_all_tests(self):
 		for var in self.test_checkbuttons.values():
 			var.set(False)
+		self._update_selection_count()
 
 	def _reset_and_populate_execution_list(self):
 		self.test_role_filter.set("All")
@@ -1100,6 +1359,29 @@ class WtsGuiApp(tk.Tk):
 	def _update_test_execution_display(self, *args):
 		# Save current role filter
 		self.session_settings['test_execution_role'] = self.test_role_filter.get()
+		# Also save the new filter_not_pass_only state
+		self.session_settings['filter_not_pass_only'] = self.filter_not_pass_only.get()
+
+		# Get currently ignored testbeds from UI (Advanced Options)
+		user_ignored_testbeds = [tb for tb, var in self.ignore_testbeds_vars.items() if var.get()]
+
+		# Get currently included testbeds from UI
+		user_included_testbeds = [tb for tb, var in self.include_testbeds_vars.items() if var.get()]
+
+		# Add testbeds that are disabled in Config
+		disabled_testbeds = []
+		if self.all_testbeds:
+			for tb in self.all_testbeds:
+				if not self._is_testbed_enabled(tb):
+					disabled_testbeds.append(tb)
+
+		# Combine lists (set for uniqueness)
+		effective_ignored_testbeds = list(set(user_ignored_testbeds + disabled_testbeds))
+
+		# Save ONLY the user's explicit choices to session
+		self.session_settings['ignored_testbeds'] = user_ignored_testbeds
+		self.session_settings['included_testbeds'] = user_included_testbeds
+
 		self._save_session()
 
 		role = self.test_role_filter.get()
@@ -1115,9 +1397,73 @@ class WtsGuiApp(tk.Tk):
 		if search_term:
 			filtered_names = [name for name in filtered_names if search_term in name.lower()]
 
+		# Apply "Show Cases include testbeds" Filter (Include Logic)
+		if user_included_testbeds:
+			temp_filtered = []
+			for name in filtered_names:
+				element = self.xml_test_cases.get(name)
+				should_include = False
+				if element is not None:
+					tb_list_elem = element.find('TB_LIST')
+					if tb_list_elem is not None and tb_list_elem.text:
+						case_tbs = [tb.strip() for tb in tb_list_elem.text.split(',')]
+						# If ANY of the case's testbeds are in the included list, include it
+						for tb in case_tbs:
+							if tb in user_included_testbeds:
+								should_include = True
+								break
+				if should_include:
+					temp_filtered.append(name)
+			filtered_names = temp_filtered
+
+		# Apply Ignored Testbeds Filter (Exclude Logic)
+		if effective_ignored_testbeds:
+			temp_filtered = []
+			for name in filtered_names:
+				element = self.xml_test_cases.get(name)
+				should_exclude = False
+				if element is not None:
+					tb_list_elem = element.find('TB_LIST')
+					if tb_list_elem is not None and tb_list_elem.text:
+						case_tbs = [tb.strip() for tb in tb_list_elem.text.split(',')]
+						# If ANY of the case's testbeds are in the ignored list, exclude it
+						for tb in case_tbs:
+							if tb in effective_ignored_testbeds:
+								should_exclude = True
+								break
+				if not should_exclude:
+					temp_filtered.append(name)
+			filtered_names = temp_filtered
+
+		# Apply "Not Pass (FAIL/NT) Cases Only" filter
+		if self.filter_not_pass_only.get():
+			if not hasattr(self, 'test_history_map') or not self.test_history_map:
+				messagebox.showinfo("Info", "Cannot apply 'Not Pass' filter: No analysis results found. Please go to 'Test Result' tab and click 'Analyze Result'.")
+				self.filter_not_pass_only.set(False) # Turn off filter if no data
+			else:
+				# Filter to include only "Not Pass" cases
+				not_pass_filtered_names = []
+				for name in filtered_names: # Iterate over already role/search filtered names
+					history = self.test_history_map.get(name, [])
+
+					is_not_pass = False
+					if not history: # NT case
+						is_not_pass = True
+					else:
+						latest_result = history[-1]['result']
+						if latest_result != "PASS": # FAIL or ERROR
+							is_not_pass = True
+
+					if is_not_pass:
+						not_pass_filtered_names.append(name)
+				filtered_names = not_pass_filtered_names
+
 		self._populate_test_execution_list(filtered_names)
 
 	def _update_viewer_display(self, *args):
+		self.session_settings['viewer_role'] = self.viewer_role_filter.get()
+		self._save_session()
+
 		role = self.viewer_role_filter.get()
 		search_term = self.xml_search_term.get().lower()
 
@@ -1141,6 +1487,99 @@ class WtsGuiApp(tk.Tk):
 		for var in self.test_checkbuttons.values():
 			var.set(False)
 
+	def _show_advanced_options_popup(self):
+		top = tk.Toplevel(self)
+		top.title("Advanced Options")
+		top.geometry("600x500")
+
+		# Make it modal
+		top.transient(self)
+		top.grab_set()
+
+		main_frame = ttk.Frame(top, padding="10")
+		main_frame.pack(fill=tk.BOTH, expand=True)
+
+		# --- Filter Options ---
+		filter_frame = ttk.LabelFrame(main_frame, text="Filter Options", padding="10")
+		filter_frame.pack(fill=tk.X, pady=(0, 10))
+
+		# New Checkbutton for "Not Pass (FAIL/NT) Cases Only"
+		# Command will be _update_test_execution_display
+		ttk.Checkbutton(filter_frame, text="Not Pass (FAIL/NT) Cases Only", variable=self.filter_not_pass_only, command=self._update_test_execution_display).pack(fill=tk.X, pady=5)
+
+		# --- Testbed Filters (Split View) ---
+		paned_window = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+		paned_window.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+		# Left: Include Testbeds
+		include_frame = ttk.LabelFrame(paned_window, text="Show Cases include testbeds", padding="10")
+		paned_window.add(include_frame, weight=1)
+
+		# Right: Ignore Testbeds
+		ignore_frame = ttk.LabelFrame(paned_window, text="Ignore Cases with selected testbeds", padding="10")
+		paned_window.add(ignore_frame, weight=1)
+
+		if not self.all_testbeds:
+			ttk.Label(include_frame, text="No testbeds found (Load XML first)").pack()
+			ttk.Label(ignore_frame, text="No testbeds found (Load XML first)").pack()
+		else:
+			# --- Include List ---
+			canvas_inc = tk.Canvas(include_frame)
+			scrollbar_inc = ttk.Scrollbar(include_frame, orient="vertical", command=canvas_inc.yview)
+			scrollable_frame_inc = ttk.Frame(canvas_inc)
+
+			scrollable_frame_inc.bind(
+				"<Configure>",
+				lambda e: canvas_inc.configure(scrollregion=canvas_inc.bbox("all"))
+			)
+			canvas_inc.create_window((0, 0), window=scrollable_frame_inc, anchor="nw")
+			canvas_inc.configure(yscrollcommand=scrollbar_inc.set)
+
+			canvas_inc.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+			scrollbar_inc.pack(side=tk.RIGHT, fill="y")
+
+			for tb in self.all_testbeds:
+				if tb not in self.include_testbeds_vars:
+					self.include_testbeds_vars[tb] = tk.BooleanVar(value=False)
+
+				cb = ttk.Checkbutton(scrollable_frame_inc, text=tb, variable=self.include_testbeds_vars[tb], command=self._update_test_execution_display)
+				cb.pack(anchor="w", fill=tk.X)
+
+			# --- Ignore List ---
+			canvas_ign = tk.Canvas(ignore_frame)
+			scrollbar_ign = ttk.Scrollbar(ignore_frame, orient="vertical", command=canvas_ign.yview)
+			scrollable_frame_ign = ttk.Frame(canvas_ign)
+
+			scrollable_frame_ign.bind(
+				"<Configure>",
+				lambda e: canvas_ign.configure(scrollregion=canvas_ign.bbox("all"))
+			)
+			canvas_ign.create_window((0, 0), window=scrollable_frame_ign, anchor="nw")
+			canvas_ign.configure(yscrollcommand=scrollbar_ign.set)
+
+			canvas_ign.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+			scrollbar_ign.pack(side=tk.RIGHT, fill="y")
+
+			for tb in self.all_testbeds:
+				if tb not in self.ignore_testbeds_vars:
+					self.ignore_testbeds_vars[tb] = tk.BooleanVar(value=False)
+
+				is_enabled = self._is_testbed_enabled(tb)
+				text_label = tb
+				state = "normal"
+
+				if not is_enabled:
+					self.ignore_testbeds_vars[tb].set(True)
+					text_label += " (Testbed not enabled)"
+					state = "disabled"
+
+				cb = ttk.Checkbutton(scrollable_frame_ign, text=text_label, variable=self.ignore_testbeds_vars[tb], command=self._update_test_execution_display, state=state)
+				cb.pack(anchor="w", fill=tk.X)
+
+		ttk.Button(main_frame, text="Close", command=top.destroy).pack(side=tk.BOTTOM, pady=5)
+
+
+
 	def _write_to_terminal(self, message):
 		self.terminal_output.config(state=tk.NORMAL)
 
@@ -1157,6 +1596,9 @@ class WtsGuiApp(tk.Tk):
 		self.terminal_output.config(state=tk.DISABLED)
 
 	def _run_command_thread(self, command):
+		# If on Windows and using WSL, prepend 'wsl.exe'
+		if os.name == 'nt' and self.use_wsl:
+			command = ["wsl.exe"] + command
 		try:
 			self.current_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 			for line in iter(self.current_process.stdout.readline, ''):
@@ -1167,7 +1609,7 @@ class WtsGuiApp(tk.Tk):
 			self.after(0, self._write_to_terminal, f"Error: Command '{command[0]}' not found. Make sure 'wts' is in your system's PATH.\n")
 		except Exception as e:
 			# Avoid error messages if the process was intentionally killed (which might close the pipe)
-			if self.current_process: 
+			if self.current_process:
 				self.after(0, self._write_to_terminal, f"An error occurred: {e}\n")
 		finally:
 			self.current_process = None
