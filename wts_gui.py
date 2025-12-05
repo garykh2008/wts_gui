@@ -436,7 +436,7 @@ class WtsGuiApp(tk.Tk):
 
 		terminal_frame = ttk.LabelFrame(right_pane, text="Terminal Output", padding="10")
 		terminal_frame.pack(fill=tk.BOTH, expand=True)
-		self.terminal_output = tk.Text(terminal_frame, wrap=tk.WORD, state=tk.DISABLED, bg="black", fg="white", insertbackground="white")
+		self.terminal_output = tk.Text(terminal_frame, wrap=tk.WORD, state=tk.DISABLED, bg="black", fg="white", insertbackground="white", font=("Consolas", 12))
 		self.terminal_output.pack(fill=tk.BOTH, expand=True)
 		# Configure tags for colored output
 		self.terminal_output.tag_configure("pass", foreground="lime green")
