@@ -24,7 +24,7 @@ class WtsGuiApp(tk.Tk):
 	def __init__(self):
 
 		super().__init__()
-		self.APP_VERSION = "1.0"
+		self.APP_VERSION = "2.0"
 		self.app_initialized = False # Flag to prevent overwriting settings during initialization
 		self.title(f"WTS GUI v{self.APP_VERSION}")
 		self.geometry("1024x768")

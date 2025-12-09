@@ -1,6 +1,6 @@
 # WTS GUI (Wireless Test System Graphical Interface)
 
-**Version**: 1.0  
+**Version**: 2.0  
 **Copyright**: Copyright © 2025 Realtek Semiconductor Corp. All rights reserved.
 
 ## Introduction
@@ -33,6 +33,7 @@ This tool supports cross-platform execution, including **Windows (Native / WSL)*
     *   Live statistics dashboard (PASS/FAIL/NT/Total counts).
 *   **Log Viewer**:
     *   Browse log folders by date (filterable).
+    *   **Bulk Zip & Save**: Select multiple log folders and right-click to zip and save them to a specific directory in one go.
     *   View log files (`.log`, `.pcapng.gz`).
     *   Open files in the system's default text editor or Wireshark.
 *   **Other Tools**:
@@ -68,7 +69,10 @@ This tool supports cross-platform execution, including **Windows (Native / WSL)*
 
 ### 4. Log Viewer (Viewing Logs)
 1.  Select a log folder from the left-hand side (can be filtered by date).
-2.  Double-click a file on the right to open it.
+2.  **Zip Logs**: Right-click on one or more folders to zip and save them.
+    *   **Single Selection**: "Zip and Save As..." allows you to choose the filename and location.
+    *   **Multiple Selection**: "Zip and Save [N] Folders..." allows you to choose a destination directory. Each folder will be zipped individually into that directory.
+3.  Double-click a file on the right to open it.
     *   `.log` files: Opened with the system's default text editor.
     *   `.pcapng` files: Attempted to open with Wireshark.
 
