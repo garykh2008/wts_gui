@@ -517,6 +517,11 @@ class WtsGuiApp(tk.Tk):
 		self.log_folder_tree.configure(yscrollcommand=log_folder_scrollbar.set)
 		self.log_folder_tree.bind("<<TreeviewSelect>>", self._on_log_folder_select)
 
+		# Right-click binding for Zip and Save
+		self.log_folder_tree.bind("<Button-3>", self._on_log_folder_right_click)
+		if os.name != "nt":
+			self.log_folder_tree.bind("<Button-2>", self._on_log_folder_right_click)
+
 		# --- Right Pane: Log File List ---
 		right_pane = ttk.Frame(paned_window, padding=5)
 		paned_window.add(right_pane, weight=2)
@@ -645,6 +650,56 @@ class WtsGuiApp(tk.Tk):
 		# Populate history (newest first for better readability in popup)
 		for record in reversed(history):
 			tree.insert("", "end", values=(record['result'], record['folder']), tags=(record['result'],))
+
+		# Bind right-click on history items
+		tree.bind("<Button-3>", lambda event: self._on_history_item_right_click(event, tree))
+		if os.name != "nt":
+			tree.bind("<Button-2>", lambda event: self._on_history_item_right_click(event, tree))
+
+	def _on_history_item_right_click(self, event, tree):
+		item_id = tree.identify_row(event.y)
+		if not item_id:
+			return
+
+		tree.selection_set(item_id)
+		values = tree.item(item_id, "values")
+		if not values:
+			return
+		
+		folder_name = values[1]
+		
+		menu = tk.Menu(tree, tearoff=0)
+		menu.add_command(label="Zip and Save As...", command=lambda: self._zip_and_save_log(folder_name))
+		menu.post(event.x_root, event.y_root)
+
+	def _zip_and_save_log(self, folder_name):
+		source_path = os.path.join(self.log_dir_path, folder_name)
+		if not os.path.exists(source_path):
+			messagebox.showerror("Error", f"Log folder not found: {source_path}")
+			return
+
+		save_path = filedialog.asksaveasfilename(
+			defaultextension=".zip",
+			filetypes=[("Zip files", "*.zip"), ("All files", "*.*")],
+			initialfile=f"{folder_name}.zip",
+			title="Save Log as Zip"
+		)
+
+		if not save_path:
+			return
+
+		try:
+			# Create a zip archive
+			# shutil.make_archive expects the base_name without extension if format is specified, 
+			# but here save_path usually includes it. We'll use root_dir and base_dir to structure it.
+			
+			# Remove extension from save_path for make_archive base_name argument if it exists
+			base_name = os.path.splitext(save_path)[0]
+			
+			shutil.make_archive(base_name, 'zip', root_dir=self.log_dir_path, base_dir=folder_name)
+			messagebox.showinfo("Success", f"Log folder saved to:\n{save_path}")
+		except Exception as e:
+			messagebox.showerror("Error", f"Failed to zip and save log: {e}")
 
 	def _analyze_results(self):
 		# Save current filter date
@@ -1882,6 +1937,62 @@ class WtsGuiApp(tk.Tk):
 						self.log_folder_tree.insert("", "end", text=folder_name)
 		except Exception as e:
 			messagebox.showerror("Error", f"Failed to read log directory: {e}")
+
+	def _on_log_folder_right_click(self, event):
+		item_id = self.log_folder_tree.identify_row(event.y)
+		if not item_id:
+			return
+
+		# Check if the right-clicked item is already in the selection.
+		# If it is, we keep the current selection (allowing multi-select actions).
+		# If it's not, we select it (standard behavior).
+		selection = self.log_folder_tree.selection()
+		if item_id not in selection:
+			self.log_folder_tree.selection_set(item_id)
+			selection = (item_id,)
+
+		folder_names = [self.log_folder_tree.item(sid, "text") for sid in selection]
+
+		menu = tk.Menu(self.log_folder_tree, tearoff=0)
+		if len(folder_names) > 1:
+			menu.add_command(label=f"Zip and Save {len(folder_names)} Folders...", command=lambda: self._zip_multiple_logs(folder_names))
+		else:
+			menu.add_command(label="Zip and Save As...", command=lambda: self._zip_and_save_log(folder_names[0]))
+		
+		menu.post(event.x_root, event.y_root)
+
+	def _zip_multiple_logs(self, folder_names):
+		target_dir = filedialog.askdirectory(title="Select Destination Directory")
+		if not target_dir:
+			return
+
+		success_count = 0
+		errors = []
+
+		for folder_name in folder_names:
+			source_path = os.path.join(self.log_dir_path, folder_name)
+			if not os.path.exists(source_path):
+				errors.append(f"{folder_name}: Not found")
+				continue
+			
+			try:
+				# Output file: target_dir/folder_name.zip
+				# make_archive base_name should not include extension if format is specified
+				base_name = os.path.join(target_dir, folder_name)
+				shutil.make_archive(base_name, 'zip', root_dir=self.log_dir_path, base_dir=folder_name)
+				success_count += 1
+			except Exception as e:
+				errors.append(f"{folder_name}: {e}")
+
+		msg = f"Successfully zipped {success_count} logs to:\n{target_dir}"
+		if errors:
+			msg += "\n\nErrors:\n" + "\n".join(errors)
+			if success_count == 0:
+				messagebox.showerror("Error", msg)
+			else:
+				messagebox.showwarning("Partial Success", msg)
+		else:
+			messagebox.showinfo("Success", msg)
 
 	def _on_log_folder_select(self, event):
 		for item in self.log_file_tree.get_children():
