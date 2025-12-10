@@ -9,6 +9,7 @@ import sys
 import threading
 import shutil
 import os
+import csv
 
 # Try to import tkcalendar for a better date picking experience.
 try:
@@ -584,6 +585,9 @@ class WtsGuiApp(tk.Tk):
 		analyze_button = ttk.Button(filter_frame, text="Analyze Result", command=self._analyze_results)
 		analyze_button.pack(side=tk.LEFT, padx=(0, 10))
 
+		export_button = ttk.Button(filter_frame, text="Export Result", command=self._export_results_to_excel)
+		export_button.pack(side=tk.LEFT, padx=(0, 10))
+
 		self.hide_nt_var = tk.BooleanVar(value=False)
 		ttk.Checkbutton(filter_frame, text="Hide NT", variable=self.hide_nt_var, command=self._on_result_view_toggle).pack(side=tk.LEFT)
 
@@ -816,6 +820,172 @@ class WtsGuiApp(tk.Tk):
 		# 4. Populate Treeview
 		self._populate_results_tree(target_test_cases)
 
+	def _export_results_to_excel(self):
+		if not self.result_tree.get_children():
+			messagebox.showinfo("Info", "No results to export. Please analyze results first.")
+			return
+
+		# Check if openpyxl is installed
+		has_openpyxl = False
+		try:
+			import openpyxl
+			has_openpyxl = True
+		except ImportError as e:
+			print(f"OpenPyXL import error: {e}")
+			# Show warning to help debug why it's missing in the build
+			messagebox.showwarning("Export Feature Limit", f"Excel (.xlsx) export is unavailable because the 'openpyxl' library could not be loaded.\n\nError: {e}\n\nFalling back to CSV format.")
+		except Exception as e:
+			print(f"OpenPyXL unexpected error: {e}")
+
+		filetypes = []
+		default_ext = ".csv"
+
+		if has_openpyxl:
+			filetypes.append(("Excel files", "*.xlsx"))
+			default_ext = ".xlsx"
+
+		filetypes.append(("CSV files", "*.csv"))
+		filetypes.append(("All files", "*.*"))
+
+		filepath = filedialog.asksaveasfilename(
+			title="Export Results",
+			defaultextension=default_ext,
+			filetypes=filetypes
+		)
+
+		if not filepath:
+			return
+
+		if filepath.lower().endswith('.xlsx') and has_openpyxl:
+			self._export_to_excel_openpyxl(filepath)
+		else:
+			self._export_to_csv(filepath)
+
+	def _export_to_csv(self, filepath):
+		try:
+			# Use utf-8-sig for better Excel compatibility with non-ASCII characters
+			with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+				writer = csv.writer(f)
+				# Write header
+				writer.writerow(["Test Case", "Result", "Log Folder"])
+
+				# Write data from treeview
+				for item_id in self.result_tree.get_children():
+					values = self.result_tree.item(item_id, "values")
+					writer.writerow(values)
+
+			messagebox.showinfo("Success", f"Results exported to:\n{filepath}")
+		except Exception as e:
+			messagebox.showerror("Error", f"Failed to export results: {e}")
+
+	def _export_to_excel_openpyxl(self, filepath):
+		try:
+			import openpyxl
+			from openpyxl.styles import PatternFill, Font, Alignment
+
+			wb = openpyxl.Workbook()
+			ws = wb.active
+			ws.title = "Test Results"
+
+			# Define Styles
+			header_font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+			header_fill = PatternFill(start_color='5B9BD5', end_color='5B9BD5', fill_type='solid') # Blue
+
+			pass_fill = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid') # Light Green
+			pass_font = Font(color='006100') # Dark Green
+
+			fail_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid') # Light Red
+			fail_font = Font(color='9C0006') # Dark Red
+
+			center_align = Alignment(horizontal='center')
+			bold_font = Font(bold=True)
+
+			# Write Summary Statistics
+			ws.append(["Summary:"])
+			ws.cell(row=1, column=1).font = bold_font
+			ws.append([f"PASS: {self.count_pass}"])
+			ws.cell(row=2, column=1).font = bold_font
+			ws.append([f"FAIL: {self.count_fail}"])
+			ws.cell(row=3, column=1).font = bold_font
+			ws.append([f"NT: {self.count_nt}"])
+			ws.cell(row=4, column=1).font = bold_font
+			ws.append([f"Not Support: {self.count_ns}"])
+			ws.cell(row=5, column=1).font = bold_font
+
+			# Calculate total based on current role filter
+			current_role = self.result_role_filter.get()
+			total_count = 0
+			if current_role == "AP":
+				total_count = len([name for name in self.xml_test_case_names if name.split('-', 1)[-1].startswith('4.')])
+			elif current_role == "STA":
+				total_count = len([name for name in self.xml_test_case_names if name.split('-', 1)[-1].startswith('5.')])
+			else:
+				total_count = len(self.xml_test_case_names)
+
+			ws.append([f"Total Test Cases ({current_role}): {total_count}"])
+			ws.cell(row=6, column=1).font = bold_font
+
+			# Add a couple of empty rows for spacing
+			ws.append([])
+			ws.append([])
+
+			# Write Header
+			headers = ["Test Case", "Result", "Log Folder"]
+			ws.append(headers)
+
+			for cell in ws[1]:
+				cell.font = header_font
+				cell.fill = header_fill
+				cell.alignment = center_align
+
+			# Write Data
+			for item_id in self.result_tree.get_children():
+				values = self.result_tree.item(item_id, "values")
+				test_case = values[0]
+				result = values[1]
+				log_folder = values[2]
+
+				ws.append([test_case, result, log_folder])
+
+				# Apply Styles to the last row added
+				last_row = ws.max_row
+
+				# Result column (B) styling
+				result_cell = ws.cell(row=last_row, column=2)
+				result_cell.alignment = center_align
+
+				if result == "PASS":
+					result_cell.fill = pass_fill
+					result_cell.font = pass_font
+				elif result in ["FAIL", "ERROR"]:
+					result_cell.fill = fail_fill
+					result_cell.font = fail_font
+
+			# Feature: Freeze Top Row
+			ws.freeze_panes = "A2"
+
+			# Feature: Auto Filter
+			ws.auto_filter.ref = ws.dimensions
+
+			# Feature: Auto-adjust column widths
+			for col in ws.columns:
+				max_length = 0
+				column = col[0].column_letter # Get the column name
+				for cell in col:
+					try:
+						if len(str(cell.value)) > max_length:
+							max_length = len(str(cell.value))
+					except:
+						pass
+				adjusted_width = (max_length + 2) * 1.2
+				ws.column_dimensions[column].width = min(adjusted_width, 100) # Cap width at 100
+
+			wb.save(filepath)
+			messagebox.showinfo("Success", f"Results exported to:\n{filepath}")
+
+		except Exception as e:
+			messagebox.showerror("Error", f"Failed to export results to Excel: {e}")
+
 	def _on_result_view_toggle(self):
 		# Refresh the tree view using the existing data in self.test_history_map
 		# We need to reconstruct the target test cases list based on the role filter
@@ -836,11 +1006,11 @@ class WtsGuiApp(tk.Tk):
 		hide_nt = self.hide_nt_var.get()
 		hide_ns = self.hide_ns_var.get()
 
-		count_pass = 0
-		count_fail = 0
-		count_nt = 0
-		count_ns = 0
-		total_visible = 0
+		self.count_pass = 0
+		self.count_fail = 0
+		self.count_nt = 0
+		self.count_ns = 0
+		self.total_visible = 0
 
 		for test_case in test_cases:
 			history = self.test_history_map.get(test_case, [])
@@ -857,13 +1027,13 @@ class WtsGuiApp(tk.Tk):
 				folder = latest['folder']
 
 			if result == "PASS":
-				count_pass += 1
+				self.count_pass += 1
 			elif result == "Not Support":
-				count_ns += 1
+				self.count_ns += 1
 			elif result == "NT":
-				count_nt += 1
+				self.count_nt += 1
 			else:
-				count_fail += 1 # FAIL or ERROR
+				self.count_fail += 1 # FAIL or ERROR
 
 			# Filtering logic
 			if hide_nt and result == "NT":
@@ -874,10 +1044,10 @@ class WtsGuiApp(tk.Tk):
 			values = (test_case, result, folder)
 
 			self.result_tree.insert("", "end", values=values, tags=(result,))
-			total_visible += 1
+			self.total_visible += 1
 
 		# Update frame text with counts
-		self.results_frame.config(text=f"Analysis Results (PASS: {count_pass}, FAIL: {count_fail}, NT: {count_nt}, NS: {count_ns}, Total: {len(test_cases)})")
+		self.results_frame.config(text=f"Analysis Results (PASS: {self.count_pass}, FAIL: {self.count_fail}, NT: {self.count_nt}, NS: {self.count_ns}, Total: {len(test_cases)})")
 
 	def _browse_config_file(self):
 		filepath = filedialog.askopenfilename(
