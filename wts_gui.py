@@ -54,33 +54,38 @@ class WtsGuiApp(tk.Tk):
 		self.linux_editor_command = None
 		if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
 			# Running in a PyInstaller bundle, executable is in 'bin'
-			bin_dir = os.path.dirname(sys.executable)
+			self.bin_dir = os.path.dirname(sys.executable)
 		else:
 			# Running as a normal .py script, script is in 'bin'
-			bin_dir = os.path.dirname(os.path.abspath(__file__))
+			self.bin_dir = os.path.dirname(os.path.abspath(__file__))
 
 		# Determine if we should use native Windows executable or WSL
 		self.use_wsl = False
-		self.wts_executable_path = os.path.join(bin_dir, 'wts')
+		self.wts_executable_path = os.path.join(self.bin_dir, 'wts')
 
 		if os.name == 'nt':
 			# Check if native Windows executable exists
-			wts_exe_path = os.path.join(bin_dir, 'wts.exe')
+			wts_exe_path = os.path.join(self.bin_dir, 'wts.exe')
 			if os.path.exists(wts_exe_path):
 				self.wts_executable_path = wts_exe_path
 			else:
 				# Fallback to WSL if wts.exe is missing
 				self.use_wsl = True
-				self.wts_executable_path = os.path.join(bin_dir, 'wts')
+				self.wts_executable_path = os.path.join(self.bin_dir, 'wts')
 
-		self.log_dir_path = os.path.join(bin_dir, 'log')
-		wts_root_dir = os.path.dirname(bin_dir)
+		self.log_dir_path = os.path.join(self.bin_dir, 'log')
+		wts_root_dir = os.path.dirname(self.bin_dir)
 		self.tms_client_conf_path = os.path.join(wts_root_dir, 'config', 'TmsClient.conf')
 		self.tms_data = []
 		self.upload_to_tms_var = tk.BooleanVar()
 		self.current_process = None # Track the running process
 
 		self.selection_canvas = None
+
+		# --- Not Support Feature ---
+		self.not_support_list = set()
+		self.not_support_file_name = "wts_not_support.json"
+		self.not_support_default_path = os.path.join(self.bin_dir, self.not_support_file_name)
 
 		self._create_menu()
 		self._create_widgets()
@@ -106,6 +111,8 @@ class WtsGuiApp(tk.Tk):
 		self._load_log_folders()
 
 		self.app_initialized = True
+
+		self.after(500, self._check_not_support_file) # Check after a short delay to ensure UI is ready
 
 	def _create_menu(self):
 		menubar = tk.Menu(self)
@@ -387,6 +394,11 @@ class WtsGuiApp(tk.Tk):
 
 		ttk.Button(search_frame, text="Advanced Option", command=self._show_advanced_options_popup).pack(side=tk.LEFT, padx=(5, 0))
 
+		# Action frame for additional config buttons
+		action_frame = ttk.Frame(filter_frame)
+		action_frame.pack(fill=tk.X, pady=(5, 0))
+		ttk.Button(action_frame, text="Config Not Support", command=self._show_not_support_config_window).pack(side=tk.LEFT)
+
 		# Test case selection frame
 		self.selection_frame = ttk.LabelFrame(left_pane, text="Test Case Selection", padding="10")
 		self.selection_frame.pack(fill=tk.BOTH, expand=True)
@@ -573,7 +585,10 @@ class WtsGuiApp(tk.Tk):
 		analyze_button.pack(side=tk.LEFT, padx=(0, 10))
 
 		self.hide_nt_var = tk.BooleanVar(value=False)
-		ttk.Checkbutton(filter_frame, text="Hide NT", variable=self.hide_nt_var, command=self._on_hide_nt_toggle).pack(side=tk.LEFT)
+		ttk.Checkbutton(filter_frame, text="Hide NT", variable=self.hide_nt_var, command=self._on_result_view_toggle).pack(side=tk.LEFT)
+
+		self.hide_ns_var = tk.BooleanVar(value=False)
+		ttk.Checkbutton(filter_frame, text="Hide Not Support", variable=self.hide_ns_var, command=self._on_result_view_toggle).pack(side=tk.LEFT, padx=(5, 0))
 
 		# --- Results Frame ---
 		self.results_frame = ttk.LabelFrame(parent, text="Analysis Results", padding="10")
@@ -603,6 +618,7 @@ class WtsGuiApp(tk.Tk):
 		self.result_tree.tag_configure('PASS', background='#ccffcc') # Light green
 		self.result_tree.tag_configure('FAIL', background='#ffcccc') # Light red
 		self.result_tree.tag_configure('NT', background='white', foreground='black') # NT style
+		self.result_tree.tag_configure('Not Support', background='#e0e0e0', foreground='grey') # Light grey for NS
 
 		# Right-click binding for history
 		# Bind Button-3 (Right Click) for all platforms as it is the standard context menu trigger.
@@ -665,9 +681,9 @@ class WtsGuiApp(tk.Tk):
 		values = tree.item(item_id, "values")
 		if not values:
 			return
-		
+
 		folder_name = values[1]
-		
+
 		menu = tk.Menu(tree, tearoff=0)
 		menu.add_command(label="Zip and Save As...", command=lambda: self._zip_and_save_log(folder_name))
 		menu.post(event.x_root, event.y_root)
@@ -690,12 +706,12 @@ class WtsGuiApp(tk.Tk):
 
 		try:
 			# Create a zip archive
-			# shutil.make_archive expects the base_name without extension if format is specified, 
+			# shutil.make_archive expects the base_name without extension if format is specified,
 			# but here save_path usually includes it. We'll use root_dir and base_dir to structure it.
-			
+
 			# Remove extension from save_path for make_archive base_name argument if it exists
 			base_name = os.path.splitext(save_path)[0]
-			
+
 			shutil.make_archive(base_name, 'zip', root_dir=self.log_dir_path, base_dir=folder_name)
 			messagebox.showinfo("Success", f"Log folder saved to:\n{save_path}")
 		except Exception as e:
@@ -800,7 +816,7 @@ class WtsGuiApp(tk.Tk):
 		# 4. Populate Treeview
 		self._populate_results_tree(target_test_cases)
 
-	def _on_hide_nt_toggle(self):
+	def _on_result_view_toggle(self):
 		# Refresh the tree view using the existing data in self.test_history_map
 		# We need to reconstruct the target test cases list based on the role filter
 		role = self.result_role_filter.get()
@@ -818,10 +834,12 @@ class WtsGuiApp(tk.Tk):
 			self.result_tree.delete(item)
 
 		hide_nt = self.hide_nt_var.get()
+		hide_ns = self.hide_ns_var.get()
 
 		count_pass = 0
 		count_fail = 0
 		count_nt = 0
+		count_ns = 0
 		total_visible = 0
 
 		for test_case in test_cases:
@@ -830,26 +848,36 @@ class WtsGuiApp(tk.Tk):
 			result = "NT"
 			folder = ""
 
-			if history:
+			# Check if Not Support
+			if test_case in self.not_support_list:
+				result = "Not Support"
+			elif history:
 				latest = history[-1]
 				result = latest['result']
 				folder = latest['folder']
 
 			if result == "PASS":
 				count_pass += 1
+			elif result == "Not Support":
+				count_ns += 1
 			elif result == "NT":
 				count_nt += 1
 			else:
 				count_fail += 1 # FAIL or ERROR
 
-			if not (hide_nt and result == "NT"):
-				values = (test_case, result, folder)
-				tags = (result if result != "NT" else "NT",)
-				self.result_tree.insert("", "end", values=values, tags=tags)
-				total_visible += 1
+			# Filtering logic
+			if hide_nt and result == "NT":
+				continue
+			if hide_ns and result == "Not Support":
+				continue
+
+			values = (test_case, result, folder)
+
+			self.result_tree.insert("", "end", values=values, tags=(result,))
+			total_visible += 1
 
 		# Update frame text with counts
-		self.results_frame.config(text=f"Analysis Results (PASS: {count_pass}, FAIL: {count_fail}, NT: {count_nt}, Total: {len(test_cases)})")
+		self.results_frame.config(text=f"Analysis Results (PASS: {count_pass}, FAIL: {count_fail}, NT: {count_nt}, NS: {count_ns}, Total: {len(test_cases)})")
 
 	def _browse_config_file(self):
 		filepath = filedialog.askopenfilename(
@@ -1458,9 +1486,12 @@ class WtsGuiApp(tk.Tk):
 		elif role == "STA":
 			filtered_names = [name for name in filtered_names if name.split('-', 1)[-1].startswith('5.')]
 
+		# Filter out Not Support items
+		if self.not_support_list:
+			filtered_names = [name for name in filtered_names if name not in self.not_support_list]
+
 		if search_term:
 			filtered_names = [name for name in filtered_names if search_term in name.lower()]
-
 		# Apply "Show Cases include testbeds" Filter (Include Logic)
 		if user_included_testbeds:
 			temp_filtered = []
@@ -1642,6 +1673,149 @@ class WtsGuiApp(tk.Tk):
 
 		ttk.Button(main_frame, text="Close", command=top.destroy).pack(side=tk.BOTTOM, pady=5)
 
+	def _check_not_support_file(self):
+		# Check saved path first, then default
+		path_to_check = self.session_settings.get('not_support_path', self.not_support_default_path)
+
+		if os.path.exists(path_to_check):
+			if messagebox.askyesno("Import Not Support Config", f"Found 'Not Support' configuration file:\n{path_to_check}\n\nDo you want to import it?"):
+				self._load_not_support_data(path_to_check)
+
+	def _load_not_support_data(self, filepath):
+		try:
+			with open(filepath, 'r', encoding='utf-8') as f:
+				data = json.load(f)
+				if isinstance(data, list):
+					self.not_support_list = set(data)
+					messagebox.showinfo("Success", f"Imported {len(self.not_support_list)} items from:\n{filepath}")
+					self._update_test_execution_display()
+
+					# Save path to session
+					self.session_settings['not_support_path'] = filepath
+					self._save_session()
+				else:
+					messagebox.showerror("Error", "Invalid file format. Expected a JSON list.")
+		except Exception as e:
+			messagebox.showerror("Error", f"Failed to load file: {e}")
+
+	def _save_not_support_data(self, filepath, data_list):
+		try:
+			with open(filepath, 'w', encoding='utf-8') as f:
+				json.dump(data_list, f, indent=4)
+			messagebox.showinfo("Success", f"Saved {len(data_list)} items to:\n{filepath}")
+
+			# Save path to session
+			self.session_settings['not_support_path'] = filepath
+			self._save_session()
+		except Exception as e:
+			messagebox.showerror("Error", f"Failed to save file: {e}")
+
+	def _show_not_support_config_window(self):
+		top = tk.Toplevel(self)
+		top.title("Not Support Configuration")
+		top.geometry("800x600")
+		top.transient(self)
+		top.grab_set()
+
+		# --- Top Frame: Actions ---
+		action_frame = ttk.Frame(top, padding="10")
+		action_frame.pack(fill=tk.X)
+
+		def import_file():
+			filepath = filedialog.askopenfilename(title="Import Not Support Config", filetypes=[("JSON files", "*.json"), ("All files", "*.*")])
+			if filepath:
+				self._load_not_support_data(filepath)
+				refresh_list()
+
+		def save_file():
+			# Gather checked items
+			current_not_support = []
+			for name, var in self.ns_vars.items():
+				if var.get():
+					current_not_support.append(name)
+
+			filepath = filedialog.asksaveasfilename(title="Save Not Support Config", initialfile=self.not_support_file_name, defaultextension=".json", filetypes=[("JSON files", "*.json")])
+			if filepath:
+				self._save_not_support_data(filepath, current_not_support)
+				# Update internal list
+				self.not_support_list = set(current_not_support)
+				self._update_test_execution_display()
+
+		ttk.Button(action_frame, text="Import...", command=import_file).pack(side=tk.LEFT, padx=(0, 5))
+		ttk.Button(action_frame, text="Save...", command=save_file).pack(side=tk.LEFT)
+
+		# --- Middle Frame: List ---
+		list_frame = ttk.LabelFrame(top, text="Select Test Cases to Mark as 'Not Support'", padding="10")
+		list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+		# Scrollable canvas
+		canvas = tk.Canvas(list_frame)
+		scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
+		scrollable_frame = ttk.Frame(canvas)
+
+		scrollable_frame.bind(
+			"<Configure>",
+			lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+		)
+		canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+		canvas.configure(yscrollcommand=scrollbar.set)
+
+		canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		scrollbar.pack(side=tk.RIGHT, fill="y")
+
+		# Mousewheel support for this specific window
+		def _on_mousewheel(event):
+			canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+		if os.name == 'nt':
+			canvas.bind_all("<MouseWheel>", _on_mousewheel)
+			top.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>")) # Clean up? Actually bind_all is global... might interfere.
+			# Better: bind to the canvas or frame and focus
+
+		self.ns_vars = {}
+
+		def refresh_list():
+			for widget in scrollable_frame.winfo_children():
+				widget.destroy()
+			self.ns_vars.clear()
+
+			# Load ALL test cases from XML
+			all_tests = self.xml_test_case_names
+			if not all_tests:
+				ttk.Label(scrollable_frame, text="No test cases loaded.").pack()
+				return
+
+			for name in all_tests:
+				var = tk.BooleanVar(value=(name in self.not_support_list))
+				cb = ttk.Checkbutton(scrollable_frame, text=name, variable=var)
+				cb.pack(anchor="w", fill=tk.X)
+				self.ns_vars[name] = var
+
+		refresh_list()
+
+		# --- Bottom Frame: Selection Control ---
+		bottom_frame = ttk.Frame(top, padding="10")
+		bottom_frame.pack(fill=tk.X)
+
+		def select_all():
+			for var in self.ns_vars.values(): var.set(True)
+
+		def deselect_all():
+			for var in self.ns_vars.values(): var.set(False)
+
+		def apply_changes():
+			# Update internal list without saving to file
+			current_not_support = []
+			for name, var in self.ns_vars.items():
+				if var.get():
+					current_not_support.append(name)
+			self.not_support_list = set(current_not_support)
+			self._update_test_execution_display()
+			top.destroy()
+
+		ttk.Button(bottom_frame, text="Select All", command=select_all).pack(side=tk.LEFT, padx=(0, 5))
+		ttk.Button(bottom_frame, text="Deselect All", command=deselect_all).pack(side=tk.LEFT)
+		ttk.Button(bottom_frame, text="Apply & Close", command=apply_changes).pack(side=tk.RIGHT)
 
 
 	def _write_to_terminal(self, message):
@@ -1958,7 +2132,7 @@ class WtsGuiApp(tk.Tk):
 			menu.add_command(label=f"Zip and Save {len(folder_names)} Folders...", command=lambda: self._zip_multiple_logs(folder_names))
 		else:
 			menu.add_command(label="Zip and Save As...", command=lambda: self._zip_and_save_log(folder_names[0]))
-		
+
 		menu.post(event.x_root, event.y_root)
 
 	def _zip_multiple_logs(self, folder_names):
@@ -1974,7 +2148,7 @@ class WtsGuiApp(tk.Tk):
 			if not os.path.exists(source_path):
 				errors.append(f"{folder_name}: Not found")
 				continue
-			
+
 			try:
 				# Output file: target_dir/folder_name.zip
 				# make_archive base_name should not include extension if format is specified
