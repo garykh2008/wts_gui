@@ -1,6 +1,6 @@
 # WTS GUI (Wireless Test System Graphical Interface)
 
-**Version**: 2.0  
+**Version**: 3.0  
 **Copyright**: Copyright © 2025 Realtek Semiconductor Corp. All rights reserved.
 
 ## Introduction
@@ -29,6 +29,12 @@ This tool supports cross-platform execution, including **Windows (Native / WSL)*
 *   **Results Analysis (Test Result)**:
     *   Scans log directories and analyzes test results (PASS/FAIL/NT status).
     *   Supports filtering by Role and Date.
+    *   **Export Results**: Export current analysis results to a professionally styled Excel (.xlsx) file, featuring:
+        *   Conditional coloring (Green for PASS, Red for FAIL/ERROR).
+        *   Auto-adjusted column widths for optimal readability.
+        *   Frozen header row for easy scrolling through large datasets.
+        *   Automatic data filters on header rows.
+        *   Summary statistics (PASS/FAIL/NT/Not Support counts) prominently displayed.
     *   **History View**: Right-click on a test result to view its detailed past execution history and log folder.
     *   Live statistics dashboard (PASS/FAIL/NT/Total counts).
 *   **Log Viewer**:
@@ -65,7 +71,8 @@ This tool supports cross-platform execution, including **Windows (Native / WSL)*
 1.  Select a **Role** and **Date** (to analyze logs from or after that date).
 2.  Click **Analyze Result** to start the analysis.
 3.  The list will display the latest status (PASS/FAIL/NT) for each test case.
-4.  **View History**: Right-click on a test case result to view its detailed past execution records and associated log folders.
+4.  **Export Results**: Click the **Export Result** button to save the current analysis data, including statistics and formatting, to an Excel (.xlsx) file.
+5.  **View History**: Right-click on a test case result to view its detailed past execution records and associated log folders.
 
 ### 4. Log Viewer (Viewing Logs)
 1.  Select a log folder from the left-hand side (can be filtered by date).
