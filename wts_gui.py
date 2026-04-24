@@ -773,16 +773,23 @@ class WtsGuiApp(QMainWindow):
                 if ok: it.setText(1, v); self.tms_data[idx]['value'] = v
 
     def _save_tms_file(self):
+        if self._perform_tms_save():
+            QMessageBox.information(self, "Success", "TMS config updated.")
+
+    def _perform_tms_save(self):
         try:
             with open(self.tms_client_conf_path, 'w', encoding='utf-8', newline='\n') as f:
                 for d in self.tms_data: f.write(f"{d['key']}={d['value']}\n" if d['type'] == 'kv_pair' else d['original'])
-            QMessageBox.information(self, "Success", "TMS config updated.")
-        except Exception as e: QMessageBox.critical(self, "Error", str(e))
+            return True
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            return False
 
     def _on_tms_upload_toggle(self):
         en = "Enabled" if self.chk_tms_upload.isChecked() else "Disabled"
         for i, d in enumerate(self.tms_data):
             if d['key'] in ['TMS_feature', 'FTP_feature']: d['value'] = en; self.tms_tree.topLevelItem(i).setText(1, en)
+        self._perform_tms_save()
 
     def _check_not_support_file(self):
         p = self.session_settings.get('not_support_path', self.not_support_default_path)
