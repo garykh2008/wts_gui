@@ -3,7 +3,7 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 RELEASE_DIR="$SCRIPT_DIR/release/linux"
 
-echo "Building WTS GUI for Linux..."
+echo "Building WTS GUI for Linux (PySide6 Edition)..."
 
 # Setup Virtual Environment to bypass system package limits (PEP 668)
 VENV_DIR=".venv"
@@ -16,19 +16,30 @@ fi
 # Activate virtual environment
 source "$VENV_DIR/bin/activate"
 
+# Upgrade pip
+pip install --upgrade pip
+
 # Install dependencies inside the venv
-echo "Installing dependencies in virtual environment..."
-pip install pyinstaller openpyxl
+echo "Installing dependencies (PySide6, openpyxl, pyinstaller)..."
+pip install PySide6 openpyxl pyinstaller
 
 # Clean previous build
 rm -rf build dist
 
 # Run PyInstaller
 # --onefile: Bundle everything into a single executable
-# --windowed: No console window
+# --windowed: No console window (useful for GUI apps)
 # --add-data: Include README.md (Linux separator is ':')
 # --hidden-import: Force include openpyxl and its dependencies
-pyinstaller --name wts_gui --onefile --windowed --add-data "README.md:." --hidden-import=openpyxl --hidden-import=et_xmlfile wts_gui.py
+# PySide6 is usually automatically detected by PyInstaller's hooks
+echo "Running PyInstaller..."
+pyinstaller --name wts_gui \
+            --onefile \
+            --windowed \
+            --add-data "README.md:." \
+            --hidden-import=openpyxl \
+            --hidden-import=et_xmlfile \
+            wts_gui.py
 
 if [ $? -eq 0 ]; then
     echo ""
