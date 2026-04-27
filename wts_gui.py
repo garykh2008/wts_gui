@@ -220,7 +220,7 @@ class ExecutionTab(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         term_card, t_lay = self.main_win._create_card_layout("Command Terminal")
         self.main_win.terminal = QPlainTextEdit(); self.main_win.terminal.setReadOnly(True)
-        self.main_win.terminal.setStyleSheet("background-color: #1e1e1e; color: #f0f0f0; border-radius: 4px; font-family: 'Consolas', monospace; padding: 12px; line-height: 150%;")
+        self.main_win.terminal.setObjectName("terminal-view")
         t_lay.addWidget(self.main_win.terminal)
         right_layout.addWidget(term_card)
 
@@ -399,89 +399,106 @@ class WtsGuiApp(QMainWindow):
         QtCore.QTimer.singleShot(500, self._check_not_support_file)
 
     def _setup_style(self):
-        """Standardized and unified modern style."""
-        self.setStyleSheet("""
-            QMainWindow { background-color: #ebedf0; }
-            QDialog { background-color: #ebedf0; }
+        """Standardized and unified modern style with optimized typography."""
+        # Use a modern font stack
+        self.font_family = "'Segoe UI Variable Text', 'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif"
+        self.mono_font_family = "'Cascadia Code', 'Consolas', 'Monaco', monospace"
+
+        self.setStyleSheet(f"""
+            QMainWindow, QDialog {{ 
+                background-color: #ebedf0; 
+                font-family: {self.font_family};
+            }}
             
             /* TabWidget Styling */
-            QTabWidget::pane { border: none; background: transparent; top: -1px; }
-            QTabBar::tab { 
+            QTabWidget::pane {{ border: none; background: transparent; top: -1px; }}
+            QTabBar::tab {{ 
                 background: #dcdfe6; border: none; padding: 10px 25px; 
                 border-top-left-radius: 6px; border-top-right-radius: 6px; margin-right: 2px;
                 color: #606266; font-weight: 500; font-size: 13px;
-            }
-            QTabBar::tab:selected { background: white; color: #409eff; border-bottom: 2px solid #409eff; font-weight: bold; }
-            QTabBar::tab:hover:!selected { background: #e4e7ed; }
+            }}
+            QTabBar::tab:selected {{ background: white; color: #409eff; border-bottom: 2px solid #409eff; font-weight: 600; }}
+            QTabBar::tab:hover:!selected {{ background: #e4e7ed; }}
 
             /* Unified GroupBox (Card) */
-            QGroupBox { 
-                font-weight: bold; font-size: 13px; color: #303133;
+            QGroupBox {{ 
+                font-weight: 600; font-size: 13px; color: #303133;
                 border: 1px solid #dcdfe6; border-radius: 8px; background-color: white;
                 margin-top: 20px; padding-top: 20px;
-            }
-            QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 8px; top: 0px; }
+            }}
+            QGroupBox::title {{ subcontrol-origin: margin; left: 15px; padding: 0 8px; top: 0px; }}
 
             /* Inputs */
-            QLineEdit, QDateEdit, QComboBox { 
+            QLineEdit, QDateEdit, QComboBox {{ 
                 border: 1px solid #dcdfe6; border-radius: 4px; padding: 7px; background: white; color: #303133;
-            }
-            QLineEdit:focus { border-color: #409eff; }
+                font-size: 13px;
+            }}
+            QLineEdit:focus {{ border-color: #409eff; }}
             
             /* Buttons */
-            QPushButton { 
-                background-color: #409eff; color: white; border-radius: 4px; padding: 8px 16px; font-weight: bold; border: none;
-            }
-            QPushButton:hover { background-color: #66b1ff; }
-            QPushButton:pressed { background-color: #3a8ee6; }
-            QPushButton:disabled { background-color: #c0c4cc; }
+            QPushButton {{ 
+                background-color: #409eff; color: white; border-radius: 4px; padding: 8px 16px; 
+                font-weight: 600; border: none; font-size: 13px;
+            }}
+            QPushButton:hover {{ background-color: #66b1ff; }}
+            QPushButton:pressed {{ background-color: #3a8ee6; }}
+            QPushButton:disabled {{ background-color: #c0c4cc; }}
             
-            QPushButton#action-btn { background-color: #67c23a; }
-            QPushButton#action-btn:hover { background-color: #85ce61; }
+            QPushButton#action-btn {{ background-color: #67c23a; }}
+            QPushButton#action-btn:hover {{ background-color: #85ce61; }}
             
-            QPushButton#danger-btn { background-color: #f56c6c; }
-            QPushButton#danger-btn:hover { background-color: #f78989; }
+            QPushButton#danger-btn {{ background-color: #f56c6c; }}
+            QPushButton#danger-btn:hover {{ background-color: #f78989; }}
             
-            QPushButton#ghost-btn { background-color: white; color: #606266; border: 1px solid #dcdfe6; }
-            QPushButton#ghost-btn:hover { color: #409eff; border-color: #c6e2ff; background-color: #ecf5ff; }
+            QPushButton#ghost-btn {{ background-color: white; color: #606266; border: 1px solid #dcdfe6; }}
+            QPushButton#ghost-btn:hover {{ color: #409eff; border-color: #c6e2ff; background-color: #ecf5ff; }}
 
             /* Data Views */
-            QTreeWidget, QListWidget, QTableWidget { 
+            QTreeWidget, QListWidget, QTableWidget {{ 
                 border: 1px solid #ebeef5; border-radius: 4px; background: white; outline: none; gridline-color: #f0f2f5;
-            }
-            QHeaderView::section { 
+                font-size: 13px;
+            }}
+            QHeaderView::section {{ 
                 background-color: #f5f7fa; padding: 8px; border: none; 
-                border-bottom: 1px solid #ebeef5; font-weight: bold; color: #909399; 
-            }
-            QTableWidget::item:selected { background-color: #f0f7ff; color: #409eff; }
-            QListWidget::item:hover, QTreeWidget::item:hover, QTableWidget::item:hover { background-color: #f5f7fa; }
+                border-bottom: 1px solid #ebeef5; font-weight: 600; color: #909399; 
+                font-size: 12px;
+            }}
+            QTableWidget::item:selected {{ background-color: #f0f7ff; color: #409eff; }}
+            QListWidget::item:hover, QTreeWidget::item:hover, QTableWidget::item:hover {{ background-color: #f5f7fa; }}
+
+            /* List Containers (Correction) */
+            QScrollArea {{ border: none; background-color: white; }}
+            QWidget#list-container {{ background-color: white; }}
+
+            /* Terminal View */
+            QPlainTextEdit#terminal-view {{
+                background-color: #1e1e1e; color: #f0f0f0; border-radius: 4px; 
+                font-family: {self.mono_font_family}; 
+                font-size: 13px; padding: 12px; line-height: 150%;
+            }}
 
             /* ScrollBar */
-            QScrollBar:vertical { border: none; background: #f5f7fa; width: 10px; margin: 0px; }
-            QScrollBar::handle:vertical { background: #dcdfe6; border-radius: 5px; min-height: 30px; margin: 2px; }
-            QScrollBar::handle:vertical:hover { background: #c0c4cc; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-
-            /* List Containers */
-            QScrollArea { border: none; background-color: white; }
-            QWidget#list-container { background-color: white; }
+            QScrollBar:vertical {{ border: none; background: #f5f7fa; width: 10px; margin: 0px; }}
+            QScrollBar::handle:vertical {{ background: #dcdfe6; border-radius: 5px; min-height: 30px; margin: 2px; }}
+            QScrollBar::handle:vertical:hover {{ background: #c0c4cc; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
 
             /* Dashboard Cards */
-            QFrame#stat-card {
+            QFrame#stat-card {{
                 background-color: white; border: 1px solid #dcdfe6; border-radius: 8px; 
-            }
-            QLabel#stat-value { font-size: 20px; font-weight: bold; }
-            QLabel#stat-label { font-size: 11px; color: #909399; text-transform: uppercase; }
+            }}
+            QLabel#stat-value {{ font-size: 22px; font-weight: 700; }}
+            QLabel#stat-label {{ font-size: 10px; color: #909399; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }}
 
             /* Progress Bar */
-            QProgressBar {
+            QProgressBar {{
                 border: none; background-color: #ebeef5; height: 6px; border-radius: 3px; text-align: center;
-            }
-            QProgressBar::chunk { background-color: #409eff; border-radius: 3px; }
+                font-size: 10px; font-weight: 600;
+            }}
+            QProgressBar::chunk {{ background-color: #409eff; border-radius: 3px; }}
 
-            QCheckBox { spacing: 8px; color: #606266; }
-            QRadioButton { spacing: 8px; color: #606266; }
-            QLabel { color: #606266; }
+            QCheckBox, QRadioButton, QLabel {{ color: #606266; font-size: 13px; }}
+            QCheckBox::indicator, QRadioButton::indicator {{ width: 16px; height: 16px; }}
         """)
 
     def _init_ui(self):
@@ -502,7 +519,7 @@ class WtsGuiApp(QMainWindow):
         self.xml_tab = MasterInfoTab(self); self.tabs.addTab(self.xml_tab, "MasterInfo")
         self.tms_tab = TmsConfigTab(self); self.tabs.addTab(self.tms_tab, "TMS Config")
 
-        self.statusBar().setStyleSheet("background: white; border-top: 1px solid #dcdfe6; padding: 5px; color: #909399;")
+        self.statusBar().setStyleSheet(f"background: white; border-top: 1px solid #dcdfe6; padding: 5px; color: #909399; font-size: 12px; font-family: {self.font_family};")
         self.statusBar().showMessage("WTS System Ready")
 
     # --- UI Component Helpers ---
@@ -961,5 +978,5 @@ class WtsGuiApp(QMainWindow):
         else: event.accept()
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv); app.setStyle("Fusion"); app.setFont(QtGui.QFont("Segoe UI", 9))
+    app = QApplication(sys.argv); app.setStyle("Fusion"); app.setFont(QtGui.QFont("Segoe UI Variable Text", 9))
     window = WtsGuiApp(); window.show(); sys.exit(app.exec())
