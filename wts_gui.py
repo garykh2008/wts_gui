@@ -100,10 +100,247 @@ class CommandWorker(QThread):
     def stop(self):
         if self.process: self.process.terminate()
 
+# --- Modularized Tab Components ---
+
+class ConfigTab(QWidget):
+    def __init__(self, main_win):
+        super().__init__()
+        self.main_win = main_win
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        path_card, p_lay = self.main_win._create_card_layout("Configuration Target")
+        h_lay = QHBoxLayout()
+        self.main_win.config_path_edit = QLineEdit(); self.main_win.config_path_edit.setPlaceholderText("No file selected...")
+        btn_browse = QPushButton("Select File"); btn_browse.setObjectName("ghost-btn")
+        btn_browse.clicked.connect(self.main_win._browse_config_file)
+        self.main_win.btn_reload_config = QPushButton("Reload"); self.main_win.btn_reload_config.setEnabled(False)
+        self.main_win.btn_reload_config.clicked.connect(self.main_win._load_config_data)
+        h_lay.addWidget(self.main_win.config_path_edit); h_lay.addWidget(btn_browse); h_lay.addWidget(self.main_win.btn_reload_config)
+        p_lay.addLayout(h_lay)
+        layout.addWidget(path_card)
+
+        toggle_card, t_lay = self.main_win._create_card_layout("Device Toggles")
+        self.main_win.ap_toggles_layout = QHBoxLayout(); self.main_win.sta_toggles_layout = QHBoxLayout()
+        t_lay.addLayout(self.main_win.ap_toggles_layout); t_lay.addLayout(self.main_win.sta_toggles_layout)
+        layout.addWidget(toggle_card)
+
+        content_card, c_lay = self.main_win._create_card_layout("File Content")
+        self.main_win.config_tree = QTreeWidget(); self.main_win.config_tree.setHeaderLabels(["Parameter Key", "Current Value"])
+        self.main_win.config_tree.setColumnWidth(0, 400); self.main_win.config_tree.setAlternatingRowColors(True)
+        self.main_win.config_tree.itemDoubleClicked.connect(self.main_win._on_config_tree_double_click)
+        c_lay.addWidget(self.main_win.config_tree)
+        layout.addWidget(content_card)
+
+        self.main_win.btn_save_config = QPushButton("Commit Changes to File")
+        self.main_win.btn_save_config.setMinimumHeight(45); self.main_win.btn_save_config.setFixedWidth(300)
+        self.main_win.btn_save_config.clicked.connect(self.main_win._save_config_file)
+        layout.addWidget(self.main_win.btn_save_config, 0, Qt.AlignCenter)
+
+class ExecutionTab(QWidget):
+    def __init__(self, main_win):
+        super().__init__()
+        self.main_win = main_win
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
+
+        # Dashboard Area
+        dash_container = QWidget()
+        dash_layout = QVBoxLayout(dash_container); dash_layout.setContentsMargins(0, 0, 0, 5); dash_layout.setSpacing(8)
+        
+        stat_row = QHBoxLayout(); stat_row.setContentsMargins(0, 0, 0, 0); stat_row.setSpacing(15)
+        self.main_win.card_total, self.main_win.lbl_total = self.main_win._create_stat_card("Selected", "#409eff")
+        self.main_win.card_pass, self.main_win.lbl_pass = self.main_win._create_stat_card("Passed", "#67c23a")
+        self.main_win.card_fail, self.main_win.lbl_fail = self.main_win._create_stat_card("Failed", "#f56c6c")
+        stat_row.addWidget(self.main_win.card_total); stat_row.addWidget(self.main_win.card_pass); stat_row.addWidget(self.main_win.card_fail)
+        stat_row.addStretch()
+        dash_layout.addLayout(stat_row)
+
+        self.main_win.progress_bar = QProgressBar(); self.main_win.progress_bar.setValue(0); self.main_win.progress_bar.setVisible(False)
+        dash_layout.addWidget(self.main_win.progress_bar)
+        layout.addWidget(dash_container)
+
+        splitter = QSplitter(Qt.Horizontal)
+        left_widget = QWidget(); left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        
+        filter_card, f_lay = self.main_win._create_card_layout("Quick Filters")
+        role_row = QHBoxLayout(); role_row.addWidget(QLabel("Role: "))
+        self.main_win.exec_role_all = QRadioButton("All"); self.main_win.exec_role_ap = QRadioButton("AP"); self.main_win.exec_role_sta = QRadioButton("STA")
+        self.main_win.exec_role_all.setChecked(True); role_row.addWidget(self.main_win.exec_role_all); role_row.addWidget(self.main_win.exec_role_ap); role_row.addWidget(self.main_win.exec_role_sta); role_row.addStretch()
+        
+        self.main_win.exec_role_all.toggled.connect(self.main_win._update_test_execution_display)
+        self.main_win.exec_role_ap.toggled.connect(self.main_win._update_test_execution_display)
+        self.main_win.exec_role_sta.toggled.connect(self.main_win._update_test_execution_display)
+        
+        f_lay.addLayout(role_row)
+        
+        search_row = QHBoxLayout(); search_row.addWidget(QLabel("Search: "))
+        self.main_win.exec_search_edit = QLineEdit(); self.main_win.exec_search_edit.setPlaceholderText("Filter by name...")
+        self.main_win.exec_search_edit.textChanged.connect(self.main_win._update_test_execution_display); search_row.addWidget(self.main_win.exec_search_edit)
+        f_lay.addLayout(search_row)
+        
+        btn_row = QHBoxLayout()
+        btn_adv = QPushButton("Advanced Filtering"); btn_adv.setObjectName("ghost-btn")
+        btn_adv.clicked.connect(self.main_win._show_advanced_options_popup)
+        btn_ns = QPushButton("Exclude List"); btn_ns.setObjectName("ghost-btn")
+        btn_ns.clicked.connect(self.main_win._show_not_support_config_window)
+        btn_row.addWidget(btn_adv); btn_row.addWidget(btn_ns)
+        f_lay.addLayout(btn_row)
+        left_layout.addWidget(filter_card)
+
+        self.main_win.sel_card, s_lay = self.main_win._create_card_layout("Test Suite Selection")
+        ctrl_row = QHBoxLayout(); b_all = QPushButton("Select All"); b_none = QPushButton("Clear")
+        b_all.setObjectName("ghost-btn"); b_none.setObjectName("ghost-btn")
+        b_all.clicked.connect(self.main_win._select_all_tests); b_none.clicked.connect(self.main_win._deselect_all_tests)
+        ctrl_row.addWidget(b_all); ctrl_row.addWidget(b_none); s_lay.addLayout(ctrl_row)
+        
+        self.main_win.scroll_area = QScrollArea(); self.main_win.scroll_area.setWidgetResizable(True)
+        self.main_win.scroll_content = QWidget(); self.main_win.scroll_content.setObjectName("list-container")
+        self.main_win.test_check_layout = QVBoxLayout(self.main_win.scroll_content); self.main_win.test_check_layout.setSpacing(5)
+        self.main_win.scroll_area.setWidget(self.main_win.scroll_content); s_lay.addWidget(self.main_win.scroll_area)
+        left_layout.addWidget(self.main_win.sel_card)
+        
+        run_row = QHBoxLayout()
+        self.main_win.btn_run = QPushButton("START TESTING"); self.main_win.btn_run.setObjectName("action-btn"); self.main_win.btn_run.setMinimumHeight(45)
+        self.main_win.btn_run.clicked.connect(self.main_win._run_tests)
+        self.main_win.btn_stop = QPushButton("ABORT"); self.main_win.btn_stop.setObjectName("danger-btn"); self.main_win.btn_stop.setMinimumHeight(45)
+        self.main_win.btn_stop.clicked.connect(self.main_win._stop_tests)
+        run_row.addWidget(self.main_win.btn_run); run_row.addWidget(self.main_win.btn_stop)
+        left_layout.addLayout(run_row)
+
+        right_widget = QWidget(); right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        term_card, t_lay = self.main_win._create_card_layout("Command Terminal")
+        self.main_win.terminal = QPlainTextEdit(); self.main_win.terminal.setReadOnly(True)
+        self.main_win.terminal.setStyleSheet("background-color: #1e1e1e; color: #f0f0f0; border-radius: 4px; font-family: 'Consolas', monospace; padding: 12px; line-height: 150%;")
+        t_lay.addWidget(self.main_win.terminal)
+        right_layout.addWidget(term_card)
+
+        splitter.addWidget(left_widget); splitter.addWidget(right_widget); splitter.setStretchFactor(1, 2)
+        layout.addWidget(splitter)
+        layout.setStretchFactor(dash_container, 0)
+        layout.setStretchFactor(splitter, 1)
+
+class AnalyticsTab(QWidget):
+    def __init__(self, main_win):
+        super().__init__()
+        self.main_win = main_win
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        opt_card, o_lay = self.main_win._create_card_layout("Scan & Filter Parameters")
+        h = QHBoxLayout(); h.addWidget(QLabel("Role: ")); self.main_win.res_role_all = QRadioButton("All"); self.main_win.res_role_ap = QRadioButton("AP"); self.main_win.res_role_sta = QRadioButton("STA")
+        self.main_win.res_role_all.setChecked(True); h.addWidget(self.main_win.res_role_all); h.addWidget(self.main_win.res_role_ap); h.addWidget(self.main_win.res_role_sta); h.addSpacing(30)
+        h.addWidget(QLabel("Logs since: ")); self.main_win.res_date_edit = QDateEdit(); self.main_win.res_date_edit.setCalendarPopup(True); self.main_win.res_date_edit.setDate(QtCore.QDate.currentDate())
+        h.addWidget(self.main_win.res_date_edit); btn_scan = QPushButton("Scan Results"); btn_scan.clicked.connect(self.main_win._analyze_results)
+        btn_exp = QPushButton("Export"); btn_exp.setObjectName("ghost-btn"); btn_exp.clicked.connect(self.main_win._export_results)
+        h.addWidget(btn_scan); h.addWidget(btn_exp); o_lay.addLayout(h)
+        
+        h2 = QHBoxLayout(); self.main_win.chk_hide_nt = QCheckBox("Hide NT"); self.main_win.chk_hide_ns = QCheckBox("Hide Excluded")
+        self.main_win.chk_hide_nt.toggled.connect(self.main_win._on_result_view_toggle); self.main_win.chk_hide_ns.toggled.connect(self.main_win._on_result_view_toggle)
+        h2.addWidget(self.main_win.chk_hide_nt); h2.addWidget(self.main_win.chk_hide_ns); h2.addStretch(); o_lay.addLayout(h2)
+        layout.addWidget(opt_card)
+        
+        res_card, r_lay = self.main_win._create_card_layout("Testing Summary")
+        self.main_win.result_table = QTableWidget(0, 3); self.main_win.result_table.setHorizontalHeaderLabels(["Test Case Name", "Final Status", "Log Directory"])
+        self.main_win.result_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch); self.main_win.result_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.main_win.result_table.setItemDelegateForColumn(1, StatusPillDelegate(self.main_win))
+        self.main_win.result_table.setEditTriggers(QAbstractItemView.NoEditTriggers); self.main_win.result_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.main_win.result_table.setContextMenuPolicy(Qt.CustomContextMenu); self.main_win.result_table.customContextMenuRequested.connect(self.main_win._show_result_context_menu)
+        r_lay.addWidget(self.main_win.result_table)
+        layout.addWidget(res_card)
+
+class LogBrowserTab(QWidget):
+    def __init__(self, main_win):
+        super().__init__()
+        self.main_win = main_win
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        splitter = QSplitter(Qt.Horizontal)
+        left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(0, 0, 0, 0)
+        f_card, fl = self.main_win._create_card_layout("Folder Filter")
+        self.main_win.log_date_edit = QDateEdit(); self.main_win.log_date_edit.setCalendarPopup(True); self.main_win.log_date_edit.setDate(QtCore.QDate.currentDate().addMonths(-1))
+        btn_ref = QPushButton("Refresh List"); btn_ref.clicked.connect(self.main_win._load_log_folders)
+        fl.addWidget(QLabel("Show folders after:")); fl.addWidget(self.main_win.log_date_edit); fl.addWidget(btn_ref); ll.addWidget(f_card)
+        list_card, lsl = self.main_win._create_card_layout("Folders"); self.main_win.log_folder_list = QListWidget(); self.main_win.log_folder_list.itemSelectionChanged.connect(self.main_win._on_log_folder_select)
+        self.main_win.log_folder_list.setContextMenuPolicy(Qt.CustomContextMenu); self.main_win.log_folder_list.customContextMenuRequested.connect(self.main_win._on_log_folder_right_click)
+        lsl.addWidget(self.main_win.log_folder_list); ll.addWidget(list_card)
+        
+        right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0)
+        file_card, fcl = self.main_win._create_card_layout("Log Files")
+        self.main_win.log_file_table = QTableWidget(0, 2); self.main_win.log_file_table.setHorizontalHeaderLabels(["Filename", "Size"])
+        self.main_win.log_file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch); self.main_win.log_file_table.itemDoubleClicked.connect(self.main_win._open_log_file)
+        fcl.addWidget(self.main_win.log_file_table); rl.addWidget(file_card)
+        
+        splitter.addWidget(left); splitter.addWidget(right); splitter.setStretchFactor(1, 2); layout.addWidget(splitter)
+
+class MasterInfoTab(QWidget):
+    def __init__(self, main_win):
+        super().__init__()
+        self.main_win = main_win
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        splitter = QSplitter(Qt.Horizontal)
+        left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(0, 0, 0, 0)
+        f_card, fl = self.main_win._create_card_layout("Quick Find")
+        self.main_win.xml_role_all = QRadioButton("All"); self.main_win.xml_role_ap = QRadioButton("AP"); self.main_win.xml_role_sta = QRadioButton("STA"); self.main_win.xml_role_all.setChecked(True)
+        hr = QHBoxLayout(); hr.addWidget(self.main_win.xml_role_all); hr.addWidget(self.main_win.xml_role_ap); hr.addWidget(self.main_win.xml_role_sta); fl.addLayout(hr)
+        
+        self.main_win.xml_role_all.toggled.connect(self.main_win._update_viewer_display)
+        self.main_win.xml_role_ap.toggled.connect(self.main_win._update_viewer_display)
+        self.main_win.xml_role_sta.toggled.connect(self.main_win._update_viewer_display)
+        
+        self.main_win.xml_search_edit = QLineEdit(); self.main_win.xml_search_edit.setPlaceholderText("Search parameters..."); fl.addWidget(self.main_win.xml_search_edit)
+        self.main_win.xml_search_edit.textChanged.connect(self.main_win._update_viewer_display)
+        
+        ll.addWidget(f_card); list_card, lsl = self.main_win._create_card_layout("Test Definitions")
+        self.main_win.xml_list = QListWidget(); self.main_win.xml_list.itemSelectionChanged.connect(self.main_win._on_test_case_select); lsl.addWidget(self.main_win.xml_list); ll.addWidget(list_card)
+        
+        right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0)
+        det_card, dcl = self.main_win._create_card_layout("Parameter Details")
+        self.main_win.xml_detail_tree = QTreeWidget(); self.main_win.xml_detail_tree.setHeaderLabels(["Key", "Value"]); self.main_win.xml_detail_tree.setColumnWidth(0, 300)
+        dcl.addWidget(self.main_win.xml_detail_tree); rl.addWidget(det_card); splitter.addWidget(left); splitter.addWidget(right); splitter.setStretchFactor(1, 2); layout.addWidget(splitter)
+
+class TmsConfigTab(QWidget):
+    def __init__(self, main_win):
+        super().__init__()
+        self.main_win = main_win
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        action_row = QHBoxLayout()
+        btn_rel = QPushButton("Reload TmsClient.conf"); btn_sav = QPushButton("Save Config"); btn_sav.setObjectName("action-btn")
+        self.main_win.chk_tms_upload = QCheckBox("Sync with TMS Portal"); action_row.addWidget(btn_rel); action_row.addWidget(btn_sav); action_row.addSpacing(20); action_row.addWidget(self.main_win.chk_tms_upload); action_row.addStretch(); layout.addLayout(action_row)
+        btn_rel.clicked.connect(self.main_win._load_tms_data); btn_sav.clicked.connect(self.main_win._save_tms_file); self.main_win.chk_tms_upload.clicked.connect(self.main_win._on_tms_upload_toggle)
+        t_card, tl = self.main_win._create_card_layout("Raw Configuration Mapping")
+        self.main_win.tms_tree = QTreeWidget(); self.main_win.tms_tree.setHeaderLabels(["Config Key", "Value"]); self.main_win.tms_tree.setColumnWidth(0, 350)
+        self.main_win.tms_tree.itemDoubleClicked.connect(self.main_win._on_tms_tree_double_click); tl.addWidget(self.main_win.tms_tree); layout.addWidget(t_card)
+
+# --- Main Application Window ---
+
 class WtsGuiApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.APP_VERSION = "3.1"
+        self.APP_VERSION = "3.2"
         self.app_initialized = False
         self.setWindowTitle(f"WTS GUI Dashboard v{self.APP_VERSION}")
         self.resize(1200, 900)
@@ -257,13 +494,13 @@ class WtsGuiApp(QMainWindow):
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs)
 
-        # Initialize Tabs
-        self.config_tab = QWidget(); self._setup_config_tab(); self.tabs.addTab(self.config_tab, "Config Editor")
-        self.execution_tab = QWidget(); self._setup_execution_tab(); self.tabs.addTab(self.execution_tab, "Execution")
-        self.result_tab = QWidget(); self._setup_result_tab(); self.tabs.addTab(self.result_tab, "Analytics")
-        self.log_tab = QWidget(); self._setup_log_tab(); self.tabs.addTab(self.log_tab, "Log Browser")
-        self.xml_tab = QWidget(); self._setup_xml_tab(); self.tabs.addTab(self.xml_tab, "MasterInfo")
-        self.tms_tab = QWidget(); self._setup_tms_tab(); self.tabs.addTab(self.tms_tab, "TMS Config")
+        # Initialize Modularized Tabs
+        self.config_tab = ConfigTab(self); self.tabs.addTab(self.config_tab, "Config Editor")
+        self.execution_tab = ExecutionTab(self); self.tabs.addTab(self.execution_tab, "Execution")
+        self.result_tab = AnalyticsTab(self); self.tabs.addTab(self.result_tab, "Analytics")
+        self.log_tab = LogBrowserTab(self); self.tabs.addTab(self.log_tab, "Log Browser")
+        self.xml_tab = MasterInfoTab(self); self.tabs.addTab(self.xml_tab, "MasterInfo")
+        self.tms_tab = TmsConfigTab(self); self.tabs.addTab(self.tms_tab, "TMS Config")
 
         self.statusBar().setStyleSheet("background: white; border-top: 1px solid #dcdfe6; padding: 5px; color: #909399;")
         self.statusBar().showMessage("WTS System Ready")
@@ -286,207 +523,7 @@ class WtsGuiApp(QMainWindow):
         l.addWidget(val, 0, Qt.AlignCenter); l.addWidget(lbl, 0, Qt.AlignCenter)
         return card, val
 
-    def _setup_config_tab(self):
-        layout = QVBoxLayout(self.config_tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        path_card, p_lay = self._create_card_layout("Configuration Target")
-        h_lay = QHBoxLayout()
-        self.config_path_edit = QLineEdit(); self.config_path_edit.setPlaceholderText("No file selected...")
-        btn_browse = QPushButton("Select File"); btn_browse.setObjectName("ghost-btn")
-        btn_browse.clicked.connect(self._browse_config_file)
-        self.btn_reload_config = QPushButton("Reload"); self.btn_reload_config.setEnabled(False)
-        self.btn_reload_config.clicked.connect(self._load_config_data)
-        h_lay.addWidget(self.config_path_edit); h_lay.addWidget(btn_browse); h_lay.addWidget(self.btn_reload_config)
-        p_lay.addLayout(h_lay)
-        layout.addWidget(path_card)
-
-        toggle_card, t_lay = self._create_card_layout("Device Toggles")
-        self.ap_toggles_layout = QHBoxLayout(); self.sta_toggles_layout = QHBoxLayout()
-        t_lay.addLayout(self.ap_toggles_layout); t_lay.addLayout(self.sta_toggles_layout)
-        layout.addWidget(toggle_card)
-
-        content_card, c_lay = self._create_card_layout("File Content")
-        self.config_tree = QTreeWidget(); self.config_tree.setHeaderLabels(["Parameter Key", "Current Value"])
-        self.config_tree.setColumnWidth(0, 400); self.config_tree.setAlternatingRowColors(True)
-        self.config_tree.itemDoubleClicked.connect(self._on_config_tree_double_click)
-        c_lay.addWidget(self.config_tree)
-        layout.addWidget(content_card)
-
-        self.btn_save_config = QPushButton("Commit Changes to File")
-        self.btn_save_config.setMinimumHeight(45); self.btn_save_config.setFixedWidth(300)
-        self.btn_save_config.clicked.connect(self._save_config_file)
-        layout.addWidget(self.btn_save_config, 0, Qt.AlignCenter)
-
-    def _setup_execution_tab(self):
-        layout = QVBoxLayout(self.execution_tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
-
-        # Dashboard Area (Compact)
-        dash_container = QWidget()
-        dash_layout = QVBoxLayout(dash_container); dash_layout.setContentsMargins(0, 0, 0, 5); dash_layout.setSpacing(8)
-        
-        stat_row = QHBoxLayout(); stat_row.setContentsMargins(0, 0, 0, 0); stat_row.setSpacing(15)
-        self.card_total, self.lbl_total = self._create_stat_card("Selected", "#409eff")
-        self.card_pass, self.lbl_pass = self._create_stat_card("Passed", "#67c23a")
-        self.card_fail, self.lbl_fail = self._create_stat_card("Failed", "#f56c6c")
-        stat_row.addWidget(self.card_total); stat_row.addWidget(self.card_pass); stat_row.addWidget(self.card_fail)
-        stat_row.addStretch()
-        dash_layout.addLayout(stat_row)
-
-        self.progress_bar = QProgressBar(); self.progress_bar.setValue(0); self.progress_bar.setVisible(False)
-        dash_layout.addWidget(self.progress_bar)
-        
-        layout.addWidget(dash_container)
-
-        splitter = QSplitter(Qt.Horizontal)
-        
-        left_widget = QWidget(); left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        
-        filter_card, f_lay = self._create_card_layout("Quick Filters")
-        role_row = QHBoxLayout(); role_row.addWidget(QLabel("Role: "))
-        self.exec_role_all = QRadioButton("All"); self.exec_role_ap = QRadioButton("AP"); self.exec_role_sta = QRadioButton("STA")
-        self.exec_role_all.setChecked(True); role_row.addWidget(self.exec_role_all); role_row.addWidget(self.exec_role_ap); role_row.addWidget(self.exec_role_sta); role_row.addStretch()
-        
-        self.exec_role_all.toggled.connect(self._update_test_execution_display)
-        self.exec_role_ap.toggled.connect(self._update_test_execution_display)
-        self.exec_role_sta.toggled.connect(self._update_test_execution_display)
-        
-        f_lay.addLayout(role_row)
-        
-        search_row = QHBoxLayout(); search_row.addWidget(QLabel("Search: "))
-        self.exec_search_edit = QLineEdit(); self.exec_search_edit.setPlaceholderText("Filter by name...")
-        self.exec_search_edit.textChanged.connect(self._update_test_execution_display); search_row.addWidget(self.exec_search_edit)
-        f_lay.addLayout(search_row)
-        
-        btn_row = QHBoxLayout()
-        btn_adv = QPushButton("Advanced Filtering"); btn_adv.setObjectName("ghost-btn")
-        btn_adv.clicked.connect(self._show_advanced_options_popup)
-        btn_ns = QPushButton("Exclude List"); btn_ns.setObjectName("ghost-btn")
-        btn_ns.clicked.connect(self._show_not_support_config_window)
-        btn_row.addWidget(btn_adv); btn_row.addWidget(btn_ns)
-        f_lay.addLayout(btn_row)
-        left_layout.addWidget(filter_card)
-
-        self.sel_card, s_lay = self._create_card_layout("Test Suite Selection")
-        ctrl_row = QHBoxLayout(); b_all = QPushButton("Select All"); b_none = QPushButton("Clear")
-        b_all.setObjectName("ghost-btn"); b_none.setObjectName("ghost-btn")
-        b_all.clicked.connect(self._select_all_tests); b_none.clicked.connect(self._deselect_all_tests)
-        ctrl_row.addWidget(b_all); ctrl_row.addWidget(b_none); s_lay.addLayout(ctrl_row)
-        
-        self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True)
-        self.scroll_content = QWidget(); self.scroll_content.setObjectName("list-container")
-        self.test_check_layout = QVBoxLayout(self.scroll_content); self.test_check_layout.setSpacing(5)
-        self.scroll_area.setWidget(self.scroll_content); s_lay.addWidget(self.scroll_area)
-        left_layout.addWidget(self.sel_card)
-        
-        run_row = QHBoxLayout()
-        self.btn_run = QPushButton("START TESTING"); self.btn_run.setObjectName("action-btn"); self.btn_run.setMinimumHeight(45)
-        self.btn_run.clicked.connect(self._run_tests)
-        self.btn_stop = QPushButton("ABORT"); self.btn_stop.setObjectName("danger-btn"); self.btn_stop.setMinimumHeight(45)
-        self.btn_stop.clicked.connect(self._stop_tests)
-        run_row.addWidget(self.btn_run); run_row.addWidget(self.btn_stop)
-        left_layout.addLayout(run_row)
-
-        right_widget = QWidget(); right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        term_card, t_lay = self._create_card_layout("Command Terminal")
-        self.terminal = QPlainTextEdit(); self.terminal.setReadOnly(True)
-        self.terminal.setStyleSheet("background-color: #1e1e1e; color: #f0f0f0; border-radius: 4px; font-family: 'Consolas', monospace; padding: 12px; line-height: 150%;")
-        t_lay.addWidget(self.terminal)
-        right_layout.addWidget(term_card)
-
-        splitter.addWidget(left_widget); splitter.addWidget(right_widget); splitter.setStretchFactor(1, 2)
-        layout.addWidget(splitter)
-        layout.setStretchFactor(dash_container, 0)
-        layout.setStretchFactor(splitter, 1)
-
-    def _setup_result_tab(self):
-        layout = QVBoxLayout(self.result_tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        opt_card, o_lay = self._create_card_layout("Scan & Filter Parameters")
-        h = QHBoxLayout(); h.addWidget(QLabel("Role: ")); self.res_role_all = QRadioButton("All"); self.res_role_ap = QRadioButton("AP"); self.res_role_sta = QRadioButton("STA")
-        self.res_role_all.setChecked(True); h.addWidget(self.res_role_all); h.addWidget(self.res_role_ap); h.addWidget(self.res_role_sta); h.addSpacing(30)
-        h.addWidget(QLabel("Logs since: ")); self.res_date_edit = QDateEdit(); self.res_date_edit.setCalendarPopup(True); self.res_date_edit.setDate(QtCore.QDate.currentDate())
-        h.addWidget(self.res_date_edit); btn_scan = QPushButton("Scan Results"); btn_scan.clicked.connect(self._analyze_results)
-        btn_exp = QPushButton("Export"); btn_exp.setObjectName("ghost-btn"); btn_exp.clicked.connect(self._export_results)
-        h.addWidget(btn_scan); h.addWidget(btn_exp); o_lay.addLayout(h)
-        
-        h2 = QHBoxLayout(); self.chk_hide_nt = QCheckBox("Hide NT"); self.chk_hide_ns = QCheckBox("Hide Excluded")
-        self.chk_hide_nt.toggled.connect(self._on_result_view_toggle); self.chk_hide_ns.toggled.connect(self._on_result_view_toggle)
-        h2.addWidget(self.chk_hide_nt); h2.addWidget(self.chk_hide_ns); h2.addStretch(); o_lay.addLayout(h2)
-        layout.addWidget(opt_card)
-        
-        res_card, r_lay = self._create_card_layout("Testing Summary")
-        self.result_table = QTableWidget(0, 3); self.result_table.setHorizontalHeaderLabels(["Test Case Name", "Final Status", "Log Directory"])
-        self.result_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch); self.result_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.result_table.setItemDelegateForColumn(1, StatusPillDelegate(self))
-        self.result_table.setEditTriggers(QAbstractItemView.NoEditTriggers); self.result_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.result_table.setContextMenuPolicy(Qt.CustomContextMenu); self.result_table.customContextMenuRequested.connect(self._show_result_context_menu)
-        r_lay.addWidget(self.result_table)
-        layout.addWidget(res_card)
-
-    def _setup_log_tab(self):
-        layout = QVBoxLayout(self.log_tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        splitter = QSplitter(Qt.Horizontal)
-        left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(0, 0, 0, 0)
-        f_card, fl = self._create_card_layout("Folder Filter")
-        self.log_date_edit = QDateEdit(); self.log_date_edit.setCalendarPopup(True); self.log_date_edit.setDate(QtCore.QDate.currentDate().addMonths(-1))
-        btn_ref = QPushButton("Refresh List"); btn_ref.clicked.connect(self._load_log_folders)
-        fl.addWidget(QLabel("Show folders after:")); fl.addWidget(self.log_date_edit); fl.addWidget(btn_ref); ll.addWidget(f_card)
-        list_card, lsl = self._create_card_layout("Folders"); self.log_folder_list = QListWidget(); self.log_folder_list.itemSelectionChanged.connect(self._on_log_folder_select)
-        self.log_folder_list.setContextMenuPolicy(Qt.CustomContextMenu); self.log_folder_list.customContextMenuRequested.connect(self._on_log_folder_right_click)
-        lsl.addWidget(self.log_folder_list); ll.addWidget(list_card)
-        
-        right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0)
-        file_card, fcl = self._create_card_layout("Log Files")
-        self.log_file_table = QTableWidget(0, 2); self.log_file_table.setHorizontalHeaderLabels(["Filename", "Size"])
-        self.log_file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch); self.log_file_table.itemDoubleClicked.connect(self._open_log_file)
-        fcl.addWidget(self.log_file_table); rl.addWidget(file_card)
-        
-        splitter.addWidget(left); splitter.addWidget(right); splitter.setStretchFactor(1, 2); layout.addWidget(splitter)
-
-    def _setup_xml_tab(self):
-        layout = QVBoxLayout(self.xml_tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        splitter = QSplitter(Qt.Horizontal)
-        left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(0, 0, 0, 0)
-        f_card, fl = self._create_card_layout("Quick Find")
-        self.xml_role_all = QRadioButton("All"); self.xml_role_ap = QRadioButton("AP"); self.xml_role_sta = QRadioButton("STA"); self.xml_role_all.setChecked(True)
-        hr = QHBoxLayout(); hr.addWidget(self.xml_role_all); hr.addWidget(self.xml_role_ap); hr.addWidget(self.xml_role_sta); fl.addLayout(hr)
-        
-        # FIX: Connect signals for XML tab filters
-        self.xml_role_all.toggled.connect(self._update_viewer_display)
-        self.xml_role_ap.toggled.connect(self._update_viewer_display)
-        self.xml_role_sta.toggled.connect(self._update_viewer_display)
-        
-        self.xml_search_edit = QLineEdit(); self.xml_search_edit.setPlaceholderText("Search parameters..."); fl.addWidget(self.xml_search_edit)
-        self.xml_search_edit.textChanged.connect(self._update_viewer_display)
-        
-        ll.addWidget(f_card); list_card, lsl = self._create_card_layout("Test Definitions")
-        self.xml_list = QListWidget(); self.xml_list.itemSelectionChanged.connect(self._on_test_case_select); lsl.addWidget(self.xml_list); ll.addWidget(list_card)
-        
-        right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0)
-        det_card, dcl = self._create_card_layout("Parameter Details")
-        self.xml_detail_tree = QTreeWidget(); self.xml_detail_tree.setHeaderLabels(["Key", "Value"]); self.xml_detail_tree.setColumnWidth(0, 300)
-        dcl.addWidget(self.xml_detail_tree); rl.addWidget(det_card); splitter.addWidget(left); splitter.addWidget(right); splitter.setStretchFactor(1, 2); layout.addWidget(splitter)
-
-    def _setup_tms_tab(self):
-        layout = QVBoxLayout(self.tms_tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        action_row = QHBoxLayout()
-        btn_rel = QPushButton("Reload TmsClient.conf"); btn_sav = QPushButton("Save Config"); btn_sav.setObjectName("action-btn")
-        self.chk_tms_upload = QCheckBox("Sync with TMS Portal"); action_row.addWidget(btn_rel); action_row.addWidget(btn_sav); action_row.addSpacing(20); action_row.addWidget(self.chk_tms_upload); action_row.addStretch(); layout.addLayout(action_row)
-        btn_rel.clicked.connect(self._load_tms_data); btn_sav.clicked.connect(self._save_tms_file); self.chk_tms_upload.clicked.connect(self._on_tms_upload_toggle)
-        t_card, tl = self._create_card_layout("Raw Configuration Mapping")
-        self.tms_tree = QTreeWidget(); self.tms_tree.setHeaderLabels(["Config Key", "Value"]); self.tms_tree.setColumnWidth(0, 350)
-        self.tms_tree.itemDoubleClicked.connect(self._on_tms_tree_double_click); tl.addWidget(self.tms_tree); layout.addWidget(t_card)
-
-    # --- Business Logic Implementation ---
+    # --- Shared Business Logic ---
 
     def _check_environment(self):
         try: return os.path.basename(self.bin_dir) == 'bin' and os.path.exists(self.wts_executable_path)
@@ -601,8 +638,6 @@ class WtsGuiApp(QMainWindow):
         if d.exec() == QDialog.Accepted:
             nv = f"ipaddr={i_in.text()},port={p_in.text()}"; it.setText(1, nv); self.config_data[idx]['modified'] = f"{it.text(0)}!{nv}!\n"
 
-    # --- XML & Logic ---
-
     def _load_xml_data(self, p):
         try:
             with open(p, 'r', encoding='utf-8') as f:
@@ -619,11 +654,8 @@ class WtsGuiApp(QMainWindow):
         role = "AP" if self.xml_role_ap.isChecked() else ("STA" if self.xml_role_sta.isChecked() else "All")
         search = self.xml_search_edit.text().lower(); self.xml_list.clear()
         for n in self.xml_test_case_names:
-            # FIX: More robust role detection based on test case ID segments
-            # role AP: EHT-4.x.x, role STA: EHT-5.x.x
             if role == "AP" and not n.split('-', 1)[-1].startswith('4.'): continue
             if role == "STA" and not n.split('-', 1)[-1].startswith('5.'): continue
-            
             if search and search not in n.lower(): continue
             self.xml_list.addItem(n)
 
@@ -637,8 +669,6 @@ class WtsGuiApp(QMainWindow):
                     if len(list(c)) > 0: recurse(c, f"{pre}{c.tag}.")
                     elif c.text and c.text.strip(): QTreeWidgetItem(self.xml_detail_tree, [f"{pre}{c.tag}", c.text.strip()])
             recurse(el); self.xml_detail_tree.expandAll()
-
-    # --- Testing Execution ---
 
     def _update_test_execution_display(self):
         role = "AP" if self.exec_role_ap.isChecked() else ("STA" if self.exec_role_sta.isChecked() else "All")
@@ -696,8 +726,6 @@ class WtsGuiApp(QMainWindow):
 
     def _write_terminal(self, t):
         clr = "#f0f0f0"
-        # Robust counting using standard WTS final result pattern
-        # The pattern looks like: "FINAL TEST RESULT ---> FAIL"
         res_match = re.search(r"FINAL TEST RESULT\s*--->\s*(PASS|FAIL)", t, re.IGNORECASE)
         if res_match:
             res = res_match.group(1).upper()
@@ -707,19 +735,15 @@ class WtsGuiApp(QMainWindow):
                 clr = "#f56c6c"; self.fail_count += 1; self.lbl_fail.setText(str(self.fail_count))
             self.progress_bar.setValue(self.pass_count + self.fail_count)
         elif "---" in t: clr = "#409eff"
-        
         self.terminal.appendHtml(f"<span style='color: {clr};'>{t.replace('\n','<br>')}</span>")
         self.terminal.verticalScrollBar().setValue(self.terminal.verticalScrollBar().maximum())
 
     def _run_tests(self):
         sel = [n for n, c in self.test_checkboxes.items() if c.isChecked()]
         if not sel: return QMessageBox.warning(self, "No Selection", "Please select test cases.")
-        
-        # Reset Stats
         self.total_selected = len(sel); self.pass_count = 0; self.fail_count = 0
         self.lbl_total.setText(str(self.total_selected)); self.lbl_pass.setText("0"); self.lbl_fail.setText("0")
         self.progress_bar.setRange(0, self.total_selected); self.progress_bar.setValue(0); self.progress_bar.setVisible(True)
-
         self.terminal.clear(); pr = "EHT"; pp = os.path.basename(os.path.dirname(self.config_path_edit.text()))
         if "WTS-" in pp: pr = pp.split('-', 1)[1]
         cmd = [self.wts_executable_path, pr, sel[0]] if len(sel) == 1 else [self.wts_executable_path, "-p", pr, "-g", "wts_group_test.txt"]
@@ -734,8 +758,6 @@ class WtsGuiApp(QMainWindow):
 
     def _stop_tests(self):
         if self.current_worker: self.current_worker.stop()
-
-    # --- Analytics Logic ---
 
     def _analyze_results(self):
         self._save_session(); self.result_table.setRowCount(0); role = "AP" if self.res_role_ap.isChecked() else ("STA" if self.res_role_sta.isChecked() else "All")
@@ -775,8 +797,6 @@ class WtsGuiApp(QMainWindow):
         role = "AP" if self.res_role_ap.isChecked() else ("STA" if self.res_role_sta.isChecked() else "All")
         self._populate_results_table([n for n in self.xml_test_case_names if (role=="All" or (role=="AP" and n.split('-', 1)[-1].startswith('4.')) or (role=="STA" and n.split('-', 1)[-1].startswith('5.')))])
 
-    # --- Log Browser ---
-
     def _load_log_folders(self):
         self.log_folder_list.clear(); fd = self.log_date_edit.date().toPython()
         if not os.path.exists(self.log_dir_path): return
@@ -798,8 +818,6 @@ class WtsGuiApp(QMainWindow):
         p = os.path.join(self.log_dir_path, self.log_folder_list.currentItem().text(), self.log_file_table.item(it.row(), 0).text())
         if os.name == 'nt': os.startfile(p)
         elif self.linux_editor_command: subprocess.Popen(self.linux_editor_command + [p])
-
-    # --- Documentation ---
 
     def _show_documentation(self):
         d = QDialog(self); d.setWindowTitle("WTS User Guide"); d.resize(900, 700); l = QVBoxLayout(d)
@@ -852,8 +870,6 @@ class WtsGuiApp(QMainWindow):
 
     def _export_excel(self, p):
         wb = openpyxl.Workbook(); ws = wb.active; ws.append(["Case", "Result", "Log"]); [ws.append([self.result_table.item(r, c).text() for c in range(3)]) for r in range(self.result_table.rowCount())]; wb.save(p)
-
-    # --- Data Handlers ---
 
     def _load_tms_data(self):
         if not os.path.exists(self.tms_client_conf_path): return
