@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QSplitter, QFileDialog, QMessageBox, QDateEdit, QScrollArea, QFrame,
     QMenu, QHeaderView, QTableWidget, QTableWidgetItem, QAbstractItemView,
     QFormLayout, QDialog, QDialogButtonBox, QComboBox, QTextBrowser, QStatusBar,
-    QStyledItemDelegate, QStyle
+    QStyledItemDelegate, QStyle, QProgressBar
 )
 
 # Optional: openpyxl for Excel export
@@ -125,6 +125,11 @@ class WtsGuiApp(QMainWindow):
         self.current_worker = None
         self.linux_editor_command = None
 
+        # Execution Stats
+        self.total_selected = 0
+        self.pass_count = 0
+        self.fail_count = 0
+
         # Path Setup
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             self.bin_dir = os.path.dirname(sys.executable)
@@ -224,6 +229,19 @@ class WtsGuiApp(QMainWindow):
             QScrollArea { border: none; background-color: white; }
             QWidget#list-container { background-color: white; }
 
+            /* Dashboard Cards */
+            QFrame#stat-card {
+                background-color: white; border: 1px solid #dcdfe6; border-radius: 8px; 
+            }
+            QLabel#stat-value { font-size: 20px; font-weight: bold; }
+            QLabel#stat-label { font-size: 11px; color: #909399; text-transform: uppercase; }
+
+            /* Progress Bar */
+            QProgressBar {
+                border: none; background-color: #ebeef5; height: 6px; border-radius: 3px; text-align: center;
+            }
+            QProgressBar::chunk { background-color: #409eff; border-radius: 3px; }
+
             QCheckBox { spacing: 8px; color: #606266; }
             QRadioButton { spacing: 8px; color: #606266; }
             QLabel { color: #606266; }
@@ -258,6 +276,15 @@ class WtsGuiApp(QMainWindow):
         layout.setContentsMargins(20, 25, 20, 20)
         layout.setSpacing(12)
         return group, layout
+
+    def _create_stat_card(self, label, color="#409eff"):
+        card = QFrame(); card.setObjectName("stat-card")
+        card.setFixedSize(120, 60)
+        l = QVBoxLayout(card); l.setContentsMargins(5, 5, 5, 5); l.setSpacing(2)
+        val = QLabel("0"); val.setObjectName("stat-value"); val.setStyleSheet(f"color: {color};")
+        lbl = QLabel(label); lbl.setObjectName("stat-label")
+        l.addWidget(val, 0, Qt.AlignCenter); l.addWidget(lbl, 0, Qt.AlignCenter)
+        return card, val
 
     def _setup_config_tab(self):
         layout = QVBoxLayout(self.config_tab)
@@ -294,6 +321,25 @@ class WtsGuiApp(QMainWindow):
     def _setup_execution_tab(self):
         layout = QVBoxLayout(self.execution_tab)
         layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
+
+        # Dashboard Area (Compact)
+        dash_container = QWidget()
+        dash_layout = QVBoxLayout(dash_container); dash_layout.setContentsMargins(0, 0, 0, 5); dash_layout.setSpacing(8)
+        
+        stat_row = QHBoxLayout(); stat_row.setContentsMargins(0, 0, 0, 0); stat_row.setSpacing(15)
+        self.card_total, self.lbl_total = self._create_stat_card("Selected", "#409eff")
+        self.card_pass, self.lbl_pass = self._create_stat_card("Passed", "#67c23a")
+        self.card_fail, self.lbl_fail = self._create_stat_card("Failed", "#f56c6c")
+        stat_row.addWidget(self.card_total); stat_row.addWidget(self.card_pass); stat_row.addWidget(self.card_fail)
+        stat_row.addStretch()
+        dash_layout.addLayout(stat_row)
+
+        self.progress_bar = QProgressBar(); self.progress_bar.setValue(0); self.progress_bar.setVisible(False)
+        dash_layout.addWidget(self.progress_bar)
+        
+        layout.addWidget(dash_container)
+
         splitter = QSplitter(Qt.Horizontal)
         
         left_widget = QWidget(); left_layout = QVBoxLayout(left_widget)
@@ -349,6 +395,8 @@ class WtsGuiApp(QMainWindow):
 
         splitter.addWidget(left_widget); splitter.addWidget(right_widget); splitter.setStretchFactor(1, 2)
         layout.addWidget(splitter)
+        layout.setStretchFactor(dash_container, 0)
+        layout.setStretchFactor(splitter, 1)
 
     def _setup_result_tab(self):
         layout = QVBoxLayout(self.result_tab)
@@ -631,15 +679,30 @@ class WtsGuiApp(QMainWindow):
 
     def _write_terminal(self, t):
         clr = "#f0f0f0"
-        if "PASS" in t: clr = "#67c23a"
-        elif "FAIL" in t: clr = "#f56c6c"
+        # Robust counting using standard WTS final result pattern
+        # The pattern looks like: "FINAL TEST RESULT ---> FAIL"
+        res_match = re.search(r"FINAL TEST RESULT\s*--->\s*(PASS|FAIL)", t, re.IGNORECASE)
+        if res_match:
+            res = res_match.group(1).upper()
+            if res == "PASS":
+                clr = "#67c23a"; self.pass_count += 1; self.lbl_pass.setText(str(self.pass_count))
+            else:
+                clr = "#f56c6c"; self.fail_count += 1; self.lbl_fail.setText(str(self.fail_count))
+            self.progress_bar.setValue(self.pass_count + self.fail_count)
         elif "---" in t: clr = "#409eff"
+        
         self.terminal.appendHtml(f"<span style='color: {clr};'>{t.replace('\n','<br>')}</span>")
         self.terminal.verticalScrollBar().setValue(self.terminal.verticalScrollBar().maximum())
 
     def _run_tests(self):
         sel = [n for n, c in self.test_checkboxes.items() if c.isChecked()]
         if not sel: return QMessageBox.warning(self, "No Selection", "Please select test cases.")
+        
+        # Reset Stats
+        self.total_selected = len(sel); self.pass_count = 0; self.fail_count = 0
+        self.lbl_total.setText(str(self.total_selected)); self.lbl_pass.setText("0"); self.lbl_fail.setText("0")
+        self.progress_bar.setRange(0, self.total_selected); self.progress_bar.setValue(0); self.progress_bar.setVisible(True)
+
         self.terminal.clear(); pr = "EHT"; pp = os.path.basename(os.path.dirname(self.config_path_edit.text()))
         if "WTS-" in pp: pr = pp.split('-', 1)[1]
         cmd = [self.wts_executable_path, pr, sel[0]] if len(sel) == 1 else [self.wts_executable_path, "-p", pr, "-g", "wts_group_test.txt"]
