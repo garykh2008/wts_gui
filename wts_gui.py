@@ -350,7 +350,6 @@ class WtsGuiApp(QMainWindow):
         self.exec_role_all = QRadioButton("All"); self.exec_role_ap = QRadioButton("AP"); self.exec_role_sta = QRadioButton("STA")
         self.exec_role_all.setChecked(True); role_row.addWidget(self.exec_role_all); role_row.addWidget(self.exec_role_ap); role_row.addWidget(self.exec_role_sta); role_row.addStretch()
         
-        # FIX: Connect radio button signals to update logic
         self.exec_role_all.toggled.connect(self._update_test_execution_display)
         self.exec_role_ap.toggled.connect(self._update_test_execution_display)
         self.exec_role_sta.toggled.connect(self._update_test_execution_display)
@@ -459,7 +458,15 @@ class WtsGuiApp(QMainWindow):
         f_card, fl = self._create_card_layout("Quick Find")
         self.xml_role_all = QRadioButton("All"); self.xml_role_ap = QRadioButton("AP"); self.xml_role_sta = QRadioButton("STA"); self.xml_role_all.setChecked(True)
         hr = QHBoxLayout(); hr.addWidget(self.xml_role_all); hr.addWidget(self.xml_role_ap); hr.addWidget(self.xml_role_sta); fl.addLayout(hr)
+        
+        # FIX: Connect signals for XML tab filters
+        self.xml_role_all.toggled.connect(self._update_viewer_display)
+        self.xml_role_ap.toggled.connect(self._update_viewer_display)
+        self.xml_role_sta.toggled.connect(self._update_viewer_display)
+        
         self.xml_search_edit = QLineEdit(); self.xml_search_edit.setPlaceholderText("Search parameters..."); fl.addWidget(self.xml_search_edit)
+        self.xml_search_edit.textChanged.connect(self._update_viewer_display)
+        
         ll.addWidget(f_card); list_card, lsl = self._create_card_layout("Test Definitions")
         self.xml_list = QListWidget(); self.xml_list.itemSelectionChanged.connect(self._on_test_case_select); lsl.addWidget(self.xml_list); ll.addWidget(list_card)
         
@@ -612,7 +619,11 @@ class WtsGuiApp(QMainWindow):
         role = "AP" if self.xml_role_ap.isChecked() else ("STA" if self.xml_role_sta.isChecked() else "All")
         search = self.xml_search_edit.text().lower(); self.xml_list.clear()
         for n in self.xml_test_case_names:
-            if role != "All" and ((role=="AP" and not n.split('-', 1)[-1].startswith('4.')) or (role=="STA" and not n.split('-', 1)[-1].startswith('5.'))): continue
+            # FIX: More robust role detection based on test case ID segments
+            # role AP: EHT-4.x.x, role STA: EHT-5.x.x
+            if role == "AP" and not n.split('-', 1)[-1].startswith('4.'): continue
+            if role == "STA" and not n.split('-', 1)[-1].startswith('5.'): continue
+            
             if search and search not in n.lower(): continue
             self.xml_list.addItem(n)
 
