@@ -349,6 +349,12 @@ class WtsGuiApp(QMainWindow):
         role_row = QHBoxLayout(); role_row.addWidget(QLabel("Role: "))
         self.exec_role_all = QRadioButton("All"); self.exec_role_ap = QRadioButton("AP"); self.exec_role_sta = QRadioButton("STA")
         self.exec_role_all.setChecked(True); role_row.addWidget(self.exec_role_all); role_row.addWidget(self.exec_role_ap); role_row.addWidget(self.exec_role_sta); role_row.addStretch()
+        
+        # FIX: Connect radio button signals to update logic
+        self.exec_role_all.toggled.connect(self._update_test_execution_display)
+        self.exec_role_ap.toggled.connect(self._update_test_execution_display)
+        self.exec_role_sta.toggled.connect(self._update_test_execution_display)
+        
         f_lay.addLayout(role_row)
         
         search_row = QHBoxLayout(); search_row.addWidget(QLabel("Search: "))
