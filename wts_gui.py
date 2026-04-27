@@ -30,6 +30,43 @@ try:
 except ImportError:
     pass
 
+# --- Icon System (SVG) ---
+
+SVG_ICONS = {
+    "config": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>""",
+    "execution": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>""",
+    "analytics": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>""",
+    "log": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>""",
+    "info": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>""",
+    "tms": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>""",
+    "reload": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>""",
+    "save": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>""",
+    "search": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>""",
+    "stop": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg>""",
+    "export": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>"""
+}
+
+# Explicitly import QtSvg to help PyInstaller detect the dependency
+HAS_SVG = False
+try:
+    from PySide6.QtSvg import QSvgRenderer
+    HAS_SVG = True
+except ImportError:
+    pass
+
+def get_svg_icon(name, color="#606266", size=QSize(20, 20)):
+    """Convert SVG string to QIcon with dynamic color."""
+    if not HAS_SVG or name not in SVG_ICONS: return QtGui.QIcon()
+    
+    svg_str = SVG_ICONS[name].replace('stroke="currentColor"', f'stroke="{color}"')
+    renderer = QSvgRenderer(QtCore.QByteArray(svg_str.encode('utf-8')))
+    pixmap = QtGui.QPixmap(size * 2) # Use 2x size for high-DPI rendering
+    pixmap.fill(Qt.transparent)
+    painter = QtGui.QPainter(pixmap)
+    renderer.render(painter)
+    painter.end()
+    return QtGui.QIcon(pixmap)
+
 class StatusPillDelegate(QStyledItemDelegate):
     """Custom delegate to draw status as colored rounded pills."""
     def paint(self, painter, option, index):
@@ -118,6 +155,7 @@ class ConfigTab(QWidget):
         btn_browse = QPushButton("Select File"); btn_browse.setObjectName("ghost-btn")
         btn_browse.clicked.connect(self.main_win._browse_config_file)
         self.main_win.btn_reload_config = QPushButton("Reload"); self.main_win.btn_reload_config.setEnabled(False)
+        self.main_win.btn_reload_config.setIcon(get_svg_icon("reload", "#409eff"))
         self.main_win.btn_reload_config.clicked.connect(self.main_win._load_config_data)
         h_lay.addWidget(self.main_win.config_path_edit); h_lay.addWidget(btn_browse); h_lay.addWidget(self.main_win.btn_reload_config)
         p_lay.addLayout(h_lay)
@@ -136,6 +174,7 @@ class ConfigTab(QWidget):
         layout.addWidget(content_card)
 
         self.main_win.btn_save_config = QPushButton("Commit Changes to File")
+        self.main_win.btn_save_config.setIcon(get_svg_icon("save", "white"))
         self.main_win.btn_save_config.setMinimumHeight(45); self.main_win.btn_save_config.setFixedWidth(300)
         self.main_win.btn_save_config.clicked.connect(self.main_win._save_config_file)
         layout.addWidget(self.main_win.btn_save_config, 0, Qt.AlignCenter)
@@ -210,8 +249,10 @@ class ExecutionTab(QWidget):
         
         run_row = QHBoxLayout()
         self.main_win.btn_run = QPushButton("START TESTING"); self.main_win.btn_run.setObjectName("action-btn"); self.main_win.btn_run.setMinimumHeight(45)
+        self.main_win.btn_run.setIcon(get_svg_icon("execution", "white"))
         self.main_win.btn_run.clicked.connect(self.main_win._run_tests)
         self.main_win.btn_stop = QPushButton("ABORT"); self.main_win.btn_stop.setObjectName("danger-btn"); self.main_win.btn_stop.setMinimumHeight(45)
+        self.main_win.btn_stop.setIcon(get_svg_icon("stop", "white"))
         self.main_win.btn_stop.clicked.connect(self.main_win._stop_tests)
         run_row.addWidget(self.main_win.btn_run); run_row.addWidget(self.main_win.btn_stop)
         left_layout.addLayout(run_row)
@@ -224,10 +265,11 @@ class ExecutionTab(QWidget):
         t_lay.addWidget(self.main_win.terminal)
         right_layout.addWidget(term_card)
 
-        splitter.addWidget(left_widget); splitter.addWidget(right_widget); splitter.setStretchFactor(1, 2)
+        splitter = QSplitter(Qt.Horizontal)
         layout.addWidget(splitter)
         layout.setStretchFactor(dash_container, 0)
         layout.setStretchFactor(splitter, 1)
+        splitter.addWidget(left_widget); splitter.addWidget(right_widget); splitter.setStretchFactor(1, 2)
 
 class AnalyticsTab(QWidget):
     def __init__(self, main_win):
@@ -244,7 +286,9 @@ class AnalyticsTab(QWidget):
         self.main_win.res_role_all.setChecked(True); h.addWidget(self.main_win.res_role_all); h.addWidget(self.main_win.res_role_ap); h.addWidget(self.main_win.res_role_sta); h.addSpacing(30)
         h.addWidget(QLabel("Logs since: ")); self.main_win.res_date_edit = QDateEdit(); self.main_win.res_date_edit.setCalendarPopup(True); self.main_win.res_date_edit.setDate(QtCore.QDate.currentDate())
         h.addWidget(self.main_win.res_date_edit); btn_scan = QPushButton("Scan Results"); btn_scan.clicked.connect(self.main_win._analyze_results)
+        btn_scan.setIcon(get_svg_icon("search", "white"))
         btn_exp = QPushButton("Export"); btn_exp.setObjectName("ghost-btn"); btn_exp.clicked.connect(self.main_win._export_results)
+        btn_exp.setIcon(get_svg_icon("export", "#606266"))
         h.addWidget(btn_scan); h.addWidget(btn_exp); o_lay.addLayout(h)
         
         h2 = QHBoxLayout(); self.main_win.chk_hide_nt = QCheckBox("Hide NT"); self.main_win.chk_hide_ns = QCheckBox("Hide Excluded")
@@ -509,15 +553,16 @@ class WtsGuiApp(QMainWindow):
         main_layout.setSpacing(10)
 
         self.tabs = QTabWidget()
+        self.tabs.setIconSize(QSize(18, 18))
         main_layout.addWidget(self.tabs)
 
-        # Initialize Modularized Tabs
-        self.config_tab = ConfigTab(self); self.tabs.addTab(self.config_tab, "Config Editor")
-        self.execution_tab = ExecutionTab(self); self.tabs.addTab(self.execution_tab, "Execution")
-        self.result_tab = AnalyticsTab(self); self.tabs.addTab(self.result_tab, "Analytics")
-        self.log_tab = LogBrowserTab(self); self.tabs.addTab(self.log_tab, "Log Browser")
-        self.xml_tab = MasterInfoTab(self); self.tabs.addTab(self.xml_tab, "MasterInfo")
-        self.tms_tab = TmsConfigTab(self); self.tabs.addTab(self.tms_tab, "TMS Config")
+        # Initialize Modularized Tabs with Icons
+        self.config_tab = ConfigTab(self); self.tabs.addTab(self.config_tab, get_svg_icon("config", "#409eff"), "Config Editor")
+        self.execution_tab = ExecutionTab(self); self.tabs.addTab(self.execution_tab, get_svg_icon("execution", "#409eff"), "Execution")
+        self.result_tab = AnalyticsTab(self); self.tabs.addTab(self.result_tab, get_svg_icon("analytics", "#409eff"), "Analytics")
+        self.log_tab = LogBrowserTab(self); self.tabs.addTab(self.log_tab, get_svg_icon("log", "#409eff"), "Log Browser")
+        self.xml_tab = MasterInfoTab(self); self.tabs.addTab(self.xml_tab, get_svg_icon("info", "#409eff"), "MasterInfo")
+        self.tms_tab = TmsConfigTab(self); self.tabs.addTab(self.tms_tab, get_svg_icon("tms", "#409eff"), "TMS Config")
 
         self.statusBar().setStyleSheet(f"background: white; border-top: 1px solid #dcdfe6; padding: 5px; color: #909399; font-size: 12px; font-family: {self.font_family};")
         self.statusBar().showMessage("WTS System Ready")

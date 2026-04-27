@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 RELEASE_DIR="$SCRIPT_DIR/release/linux"
 
@@ -29,16 +30,17 @@ rm -rf build dist
 # Run PyInstaller
 # --onefile: Bundle everything into a single executable
 # --windowed: No console window (useful for GUI apps)
-# --add-data: Include README.md (Linux separator is ':')
-# --hidden-import: Force include openpyxl and its dependencies
-# PySide6 is usually automatically detected by PyInstaller's hooks
+# --add-data: Include README files (Linux separator is ':')
+# --hidden-import: Force include modules to ensure robust packaging
 echo "Running PyInstaller..."
 pyinstaller --name wts_gui \
             --onefile \
             --windowed \
             --add-data "README.md:." \
+            --add-data "README_zh-TW.md:." \
             --hidden-import=openpyxl \
             --hidden-import=et_xmlfile \
+            --hidden-import=PySide6.QtSvg \
             wts_gui.py
 
 if [ $? -eq 0 ]; then
