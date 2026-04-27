@@ -157,42 +157,38 @@ class WtsGuiApp(QMainWindow):
         QtCore.QTimer.singleShot(500, self._check_not_support_file)
 
     def _setup_style(self):
-        """Modern Element-UI inspired style."""
+        """Standardized and unified modern style."""
         self.setStyleSheet("""
-            QMainWindow { background-color: #f0f2f5; }
+            QMainWindow { background-color: #ebedf0; }
+            QDialog { background-color: #ebedf0; }
             
             /* TabWidget Styling */
-            QTabWidget::pane { border: none; background: transparent; }
+            QTabWidget::pane { border: none; background: transparent; top: -1px; }
             QTabBar::tab { 
-                background: #e4e7ed; border: none; padding: 12px 25px; 
-                border-top-left-radius: 8px; border-top-right-radius: 8px; margin-right: 4px;
-                color: #606266; font-weight: 500;
+                background: #dcdfe6; border: none; padding: 10px 25px; 
+                border-top-left-radius: 6px; border-top-right-radius: 6px; margin-right: 2px;
+                color: #606266; font-weight: 500; font-size: 13px;
             }
-            QTabBar::tab:selected { background: white; color: #409eff; border-bottom: 2px solid #409eff; }
-            QTabBar::tab:hover:!selected { background: #dcdfe6; }
+            QTabBar::tab:selected { background: white; color: #409eff; border-bottom: 2px solid #409eff; font-weight: bold; }
+            QTabBar::tab:hover:!selected { background: #e4e7ed; }
 
-            /* Card Style (using QFrame#card) */
-            QFrame#card {
-                background-color: white; border: 1px solid #ebeef5; border-radius: 10px;
-            }
-            
-            /* GroupBox as Card */
+            /* Unified GroupBox (Card) */
             QGroupBox { 
                 font-weight: bold; font-size: 13px; color: #303133;
-                border: 1px solid #ebeef5; border-radius: 8px; background-color: white;
-                margin-top: 25px; padding-top: 20px;
+                border: 1px solid #dcdfe6; border-radius: 8px; background-color: white;
+                margin-top: 20px; padding-top: 20px;
             }
-            QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; top: 5px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 8px; top: 0px; }
 
             /* Inputs */
             QLineEdit, QDateEdit, QComboBox { 
-                border: 1px solid #dcdfe6; border-radius: 4px; padding: 8px; background: white; selection-background-color: #409eff;
+                border: 1px solid #dcdfe6; border-radius: 4px; padding: 7px; background: white; color: #303133;
             }
             QLineEdit:focus { border-color: #409eff; }
             
             /* Buttons */
             QPushButton { 
-                background-color: #409eff; color: white; border-radius: 4px; padding: 10px 18px; font-weight: bold; border: none;
+                background-color: #409eff; color: white; border-radius: 4px; padding: 8px 16px; font-weight: bold; border: none;
             }
             QPushButton:hover { background-color: #66b1ff; }
             QPushButton:pressed { background-color: #3a8ee6; }
@@ -209,26 +205,36 @@ class WtsGuiApp(QMainWindow):
 
             /* Data Views */
             QTreeWidget, QListWidget, QTableWidget { 
-                border: 1px solid #ebeef5; border-radius: 4px; background: white; outline: none;
+                border: 1px solid #ebeef5; border-radius: 4px; background: white; outline: none; gridline-color: #f0f2f5;
             }
             QHeaderView::section { 
-                background-color: #f5f7fa; padding: 10px; border: none; 
+                background-color: #f5f7fa; padding: 8px; border: none; 
                 border-bottom: 1px solid #ebeef5; font-weight: bold; color: #909399; 
             }
             QTableWidget::item:selected { background-color: #f0f7ff; color: #409eff; }
-            
+            QListWidget::item:hover, QTreeWidget::item:hover, QTableWidget::item:hover { background-color: #f5f7fa; }
+
             /* ScrollBar */
-            QScrollBar:vertical { border: none; background: #f5f7fa; width: 8px; border-radius: 4px; }
-            QScrollBar::handle:vertical { background: #dcdfe6; border-radius: 4px; min-height: 30px; }
+            QScrollBar:vertical { border: none; background: #f5f7fa; width: 10px; margin: 0px; }
+            QScrollBar::handle:vertical { background: #dcdfe6; border-radius: 5px; min-height: 30px; margin: 2px; }
             QScrollBar::handle:vertical:hover { background: #c0c4cc; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+
+            /* List Containers */
+            QScrollArea { border: none; background-color: white; }
+            QWidget#list-container { background-color: white; }
+
+            QCheckBox { spacing: 8px; color: #606266; }
+            QRadioButton { spacing: 8px; color: #606266; }
+            QLabel { color: #606266; }
         """)
 
     def _init_ui(self):
         container = QWidget()
         self.setCentralWidget(container)
         main_layout = QVBoxLayout(container)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(10)
 
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs)
@@ -241,7 +247,7 @@ class WtsGuiApp(QMainWindow):
         self.xml_tab = QWidget(); self._setup_xml_tab(); self.tabs.addTab(self.xml_tab, "MasterInfo")
         self.tms_tab = QWidget(); self._setup_tms_tab(); self.tabs.addTab(self.tms_tab, "TMS Config")
 
-        self.statusBar().setStyleSheet("background: white; border-top: 1px solid #ebeef5; padding: 5px;")
+        self.statusBar().setStyleSheet("background: white; border-top: 1px solid #dcdfe6; padding: 5px; color: #909399;")
         self.statusBar().showMessage("WTS System Ready")
 
     # --- UI Component Helpers ---
@@ -249,12 +255,13 @@ class WtsGuiApp(QMainWindow):
     def _create_card_layout(self, title):
         group = QGroupBox(title)
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(15, 20, 15, 15)
-        layout.setSpacing(10)
+        layout.setContentsMargins(20, 25, 20, 20)
+        layout.setSpacing(12)
         return group, layout
 
     def _setup_config_tab(self):
         layout = QVBoxLayout(self.config_tab)
+        layout.setContentsMargins(10, 10, 10, 10)
         
         path_card, p_lay = self._create_card_layout("Configuration Target")
         h_lay = QHBoxLayout()
@@ -286,9 +293,11 @@ class WtsGuiApp(QMainWindow):
 
     def _setup_execution_tab(self):
         layout = QVBoxLayout(self.execution_tab)
+        layout.setContentsMargins(10, 10, 10, 10)
         splitter = QSplitter(Qt.Horizontal)
         
         left_widget = QWidget(); left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
         
         filter_card, f_lay = self._create_card_layout("Quick Filters")
         role_row = QHBoxLayout(); role_row.addWidget(QLabel("Role: "))
@@ -310,16 +319,17 @@ class WtsGuiApp(QMainWindow):
         f_lay.addLayout(btn_row)
         left_layout.addWidget(filter_card)
 
-        sel_card, s_lay = self._create_card_layout("Test Suite Selection")
+        self.sel_card, s_lay = self._create_card_layout("Test Suite Selection")
         ctrl_row = QHBoxLayout(); b_all = QPushButton("Select All"); b_none = QPushButton("Clear")
         b_all.setObjectName("ghost-btn"); b_none.setObjectName("ghost-btn")
         b_all.clicked.connect(self._select_all_tests); b_none.clicked.connect(self._deselect_all_tests)
         ctrl_row.addWidget(b_all); ctrl_row.addWidget(b_none); s_lay.addLayout(ctrl_row)
         
-        self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True); self.scroll_area.setStyleSheet("border: none;")
-        self.scroll_content = QWidget(); self.test_check_layout = QVBoxLayout(self.scroll_content); self.test_check_layout.setSpacing(5)
+        self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True)
+        self.scroll_content = QWidget(); self.scroll_content.setObjectName("list-container")
+        self.test_check_layout = QVBoxLayout(self.scroll_content); self.test_check_layout.setSpacing(5)
         self.scroll_area.setWidget(self.scroll_content); s_lay.addWidget(self.scroll_area)
-        left_layout.addWidget(sel_card)
+        left_layout.addWidget(self.sel_card)
         
         run_row = QHBoxLayout()
         self.btn_run = QPushButton("START TESTING"); self.btn_run.setObjectName("action-btn"); self.btn_run.setMinimumHeight(45)
@@ -330,9 +340,10 @@ class WtsGuiApp(QMainWindow):
         left_layout.addLayout(run_row)
 
         right_widget = QWidget(); right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
         term_card, t_lay = self._create_card_layout("Command Terminal")
         self.terminal = QPlainTextEdit(); self.terminal.setReadOnly(True)
-        self.terminal.setStyleSheet("background-color: #1e1e1e; color: #f0f0f0; border-radius: 4px; font-family: 'Consolas', monospace; padding: 10px;")
+        self.terminal.setStyleSheet("background-color: #1e1e1e; color: #f0f0f0; border-radius: 4px; font-family: 'Consolas', monospace; padding: 12px; line-height: 150%;")
         t_lay.addWidget(self.terminal)
         right_layout.addWidget(term_card)
 
@@ -341,6 +352,7 @@ class WtsGuiApp(QMainWindow):
 
     def _setup_result_tab(self):
         layout = QVBoxLayout(self.result_tab)
+        layout.setContentsMargins(10, 10, 10, 10)
         
         opt_card, o_lay = self._create_card_layout("Scan & Filter Parameters")
         h = QHBoxLayout(); h.addWidget(QLabel("Role: ")); self.res_role_all = QRadioButton("All"); self.res_role_ap = QRadioButton("AP"); self.res_role_sta = QRadioButton("STA")
@@ -365,8 +377,11 @@ class WtsGuiApp(QMainWindow):
         layout.addWidget(res_card)
 
     def _setup_log_tab(self):
-        layout = QVBoxLayout(self.log_tab); splitter = QSplitter(Qt.Horizontal)
-        left = QWidget(); ll = QVBoxLayout(left); f_card, fl = self._create_card_layout("Folder Filter")
+        layout = QVBoxLayout(self.log_tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        splitter = QSplitter(Qt.Horizontal)
+        left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(0, 0, 0, 0)
+        f_card, fl = self._create_card_layout("Folder Filter")
         self.log_date_edit = QDateEdit(); self.log_date_edit.setCalendarPopup(True); self.log_date_edit.setDate(QtCore.QDate.currentDate().addMonths(-1))
         btn_ref = QPushButton("Refresh List"); btn_ref.clicked.connect(self._load_log_folders)
         fl.addWidget(QLabel("Show folders after:")); fl.addWidget(self.log_date_edit); fl.addWidget(btn_ref); ll.addWidget(f_card)
@@ -374,7 +389,8 @@ class WtsGuiApp(QMainWindow):
         self.log_folder_list.setContextMenuPolicy(Qt.CustomContextMenu); self.log_folder_list.customContextMenuRequested.connect(self._on_log_folder_right_click)
         lsl.addWidget(self.log_folder_list); ll.addWidget(list_card)
         
-        right = QWidget(); rl = QVBoxLayout(right); file_card, fcl = self._create_card_layout("Log Files")
+        right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0)
+        file_card, fcl = self._create_card_layout("Log Files")
         self.log_file_table = QTableWidget(0, 2); self.log_file_table.setHorizontalHeaderLabels(["Filename", "Size"])
         self.log_file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch); self.log_file_table.itemDoubleClicked.connect(self._open_log_file)
         fcl.addWidget(self.log_file_table); rl.addWidget(file_card)
@@ -382,20 +398,26 @@ class WtsGuiApp(QMainWindow):
         splitter.addWidget(left); splitter.addWidget(right); splitter.setStretchFactor(1, 2); layout.addWidget(splitter)
 
     def _setup_xml_tab(self):
-        layout = QVBoxLayout(self.xml_tab); splitter = QSplitter(Qt.Horizontal)
-        left = QWidget(); ll = QVBoxLayout(left); f_card, fl = self._create_card_layout("Quick Find")
+        layout = QVBoxLayout(self.xml_tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        splitter = QSplitter(Qt.Horizontal)
+        left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(0, 0, 0, 0)
+        f_card, fl = self._create_card_layout("Quick Find")
         self.xml_role_all = QRadioButton("All"); self.xml_role_ap = QRadioButton("AP"); self.xml_role_sta = QRadioButton("STA"); self.xml_role_all.setChecked(True)
         hr = QHBoxLayout(); hr.addWidget(self.xml_role_all); hr.addWidget(self.xml_role_ap); hr.addWidget(self.xml_role_sta); fl.addLayout(hr)
         self.xml_search_edit = QLineEdit(); self.xml_search_edit.setPlaceholderText("Search parameters..."); fl.addWidget(self.xml_search_edit)
         ll.addWidget(f_card); list_card, lsl = self._create_card_layout("Test Definitions")
         self.xml_list = QListWidget(); self.xml_list.itemSelectionChanged.connect(self._on_test_case_select); lsl.addWidget(self.xml_list); ll.addWidget(list_card)
         
-        right = QWidget(); rl = QVBoxLayout(right); det_card, dcl = self._create_card_layout("Parameter Details")
+        right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0)
+        det_card, dcl = self._create_card_layout("Parameter Details")
         self.xml_detail_tree = QTreeWidget(); self.xml_detail_tree.setHeaderLabels(["Key", "Value"]); self.xml_detail_tree.setColumnWidth(0, 300)
         dcl.addWidget(self.xml_detail_tree); rl.addWidget(det_card); splitter.addWidget(left); splitter.addWidget(right); splitter.setStretchFactor(1, 2); layout.addWidget(splitter)
 
     def _setup_tms_tab(self):
-        layout = QVBoxLayout(self.tms_tab); action_row = QHBoxLayout()
+        layout = QVBoxLayout(self.tms_tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        action_row = QHBoxLayout()
         btn_rel = QPushButton("Reload TmsClient.conf"); btn_sav = QPushButton("Save Config"); btn_sav.setObjectName("action-btn")
         self.chk_tms_upload = QCheckBox("Sync with TMS Portal"); action_row.addWidget(btn_rel); action_row.addWidget(btn_sav); action_row.addSpacing(20); action_row.addWidget(self.chk_tms_upload); action_row.addStretch(); layout.addLayout(action_row)
         btn_rel.clicked.connect(self._load_tms_data); btn_sav.clicked.connect(self._save_tms_file); self.chk_tms_upload.clicked.connect(self._on_tms_upload_toggle)
@@ -575,7 +597,7 @@ class WtsGuiApp(QMainWindow):
                 hist = self.test_history_map.get(n, [])
                 if hist and hist[-1]['result'] == "PASS": continue
             c = QCheckBox(n); self.test_check_layout.addWidget(c); self.test_checkboxes[n] = c; count += 1
-        self.selection_group.setTitle(f"Select Cases ({count} Visible)")
+        self.sel_card.setTitle(f"Test Suite Selection ({count} Visible)")
 
     def _is_testbed_enabled(self, tb):
         for s in ["_ap", "_sta"]:
@@ -591,8 +613,8 @@ class WtsGuiApp(QMainWindow):
         cn.toggled.connect(lambda v: [setattr(self, 'filter_not_pass_only', v), self._update_test_execution_display()]); l.addWidget(cn)
         sp = QSplitter(Qt.Horizontal)
         for t, vd, is_ign in [("Include List", self.include_testbeds_vars, False), ("Exclude List", self.ignore_testbeds_vars, True)]:
-            g = QGroupBox(t); gl = QVBoxLayout(g); sc = QScrollArea(); sc.setWidgetResizable(True); sc.setStyleSheet("border:none;")
-            ct = QWidget(); cl = QVBoxLayout(ct); sc.setWidget(ct)
+            g = QGroupBox(t); gl = QVBoxLayout(g); sc = QScrollArea(); sc.setWidgetResizable(True)
+            ct = QWidget(); ct.setObjectName("list-container"); cl = QVBoxLayout(ct); sc.setWidget(ct)
             for tb in self.all_testbeds:
                 auto = is_ign and not self._is_testbed_enabled(tb); text = f"{tb} (OFF)" if auto else tb
                 c = QCheckBox(text); c.setChecked(vd.get(tb, False) or auto)
@@ -700,7 +722,9 @@ class WtsGuiApp(QMainWindow):
     # --- Documentation ---
 
     def _show_documentation(self):
-        d = QDialog(self); d.setWindowTitle("WTS User Guide"); d.resize(900, 700); l = QVBoxLayout(d); b = QTextBrowser(); l.addWidget(b)
+        d = QDialog(self); d.setWindowTitle("WTS User Guide"); d.resize(900, 700); l = QVBoxLayout(d)
+        d.setStyleSheet("background-color: white;")
+        b = QTextBrowser(); l.addWidget(b)
         bd = os.path.dirname(os.path.abspath(__file__)); pts = [os.path.join(sys._MEIPASS, "README.md") if hasattr(sys, '_MEIPASS') else None, os.path.join(bd, "README.md"), os.path.join(os.path.dirname(bd), "README.md"), "README.md"]
         c = "# Manual Missing\nDocumentation not found."
         for p in [x for x in pts if x and os.path.exists(x)]:
@@ -812,8 +836,8 @@ class WtsGuiApp(QMainWindow):
         d = QDialog(self); d.setWindowTitle("Manage Excluded Test Cases"); d.resize(800, 600); l = QVBoxLayout(d)
         ah = QHBoxLayout(); btn_imp = QPushButton("Import List"); btn_sav = QPushButton("Save As..."); btn_imp.setObjectName("ghost-btn"); btn_sav.setObjectName("ghost-btn")
         ah.addWidget(btn_imp); ah.addWidget(btn_sav); ah.addStretch(); l.addLayout(ah)
-        g = QGroupBox("Master Exclusion Registry"); gl = QVBoxLayout(g); sc = QScrollArea(); sc.setWidgetResizable(True); sc.setStyleSheet("border:none;")
-        ct = QWidget(); cl = QVBoxLayout(ct); sc.setWidget(ct); vars_dict = {}
+        g = QGroupBox("Master Exclusion Registry"); gl = QVBoxLayout(g); sc = QScrollArea(); sc.setWidgetResizable(True)
+        ct = QWidget(); ct.setObjectName("list-container"); cl = QVBoxLayout(ct); sc.setWidget(ct); vars_dict = {}
         def refresh_ui():
             while cl.count():
                 w = cl.takeAt(0).widget()
