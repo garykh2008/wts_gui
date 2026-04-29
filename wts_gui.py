@@ -8,6 +8,7 @@ import threading
 import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime
+import ctypes
 
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt, Signal, QThread, QSize, QRect, QPoint
@@ -30,6 +31,24 @@ try:
 except ImportError:
     pass
 
+# --- Window Theme Helper (Windows Only) ---
+
+def apply_win_caption_color(widget, hex_color="#dcdfe6"):
+    """Apply custom title bar color to a widget on Windows."""
+    if os.name != 'nt': return
+    try:
+        # hex_color string to 0x00BBGGRR
+        color_str = hex_color.lstrip('#')
+        r, g, b = int(color_str[0:2], 16), int(color_str[2:4], 16), int(color_str[4:6], 16)
+        win_color = (b << 16) | (g << 8) | r
+        
+        hwnd = widget.winId()
+        DWMWA_CAPTION_COLOR = 35
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd, DWMWA_CAPTION_COLOR, ctypes.byref(ctypes.c_int(win_color)), 4
+        )
+    except: pass
+
 # --- Icon System (SVG) ---
 
 SVG_ICONS = {
@@ -40,7 +59,7 @@ SVG_ICONS = {
     "info": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>""",
     "tms": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>""",
     "reload": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>""",
-    "save": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>""",
+    "save": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1-2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>""",
     "search": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>""",
     "stop": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg>""",
     "export": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>""",
@@ -394,7 +413,7 @@ class TmsConfigTab(QWidget):
 class WtsGuiApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.APP_VERSION = "3.3"
+        self.APP_VERSION = "3.4"
         self.app_initialized = False
         self.setWindowTitle(f"WTS GUI Dashboard v{self.APP_VERSION}")
         self.resize(1200, 900)
@@ -459,11 +478,27 @@ class WtsGuiApp(QMainWindow):
         self.mono_font_family = "'Cascadia Code', 'Consolas', 'Monaco', monospace"
 
         self.setStyleSheet(f"""
-            QMainWindow, QDialog {{ 
+            QMainWindow {{ 
                 background-color: #ebedf0; 
                 font-family: {self.font_family};
             }}
             
+            /* Dialog Styling - Mid-Gray Background with No Border */
+            QDialog {{ 
+                background-color: #dcdfe6; 
+                border: none;
+                font-family: {self.font_family};
+            }}
+            
+            /* High Contrast GroupBox inside Dialogs (White on Mid-Gray) */
+            QDialog QGroupBox {{
+                background-color: #ffffff;
+                border: 1px solid #c0c4cc;
+                border-radius: 8px;
+                margin-top: 25px;
+            }}
+            QDialog QLabel {{ color: #303133; }}
+
             /* TabWidget Styling */
             QTabWidget::pane {{ border: none; background: transparent; top: -1px; }}
             QTabBar::tab {{ 
@@ -507,7 +542,7 @@ class WtsGuiApp(QMainWindow):
             QPushButton#ghost-btn {{ background-color: white; color: #606266; border: 1px solid #dcdfe6; }}
             QPushButton#ghost-btn:hover {{ color: #409eff; border-color: #c6e2ff; background-color: #ecf5ff; }}
 
-            /* Data Views (Tree/List/Table) with robust selection and hover states */
+            /* Data Views (Tree/List/Table) */
             QTreeWidget, QListWidget, QTableWidget {{ 
                 border: 1px solid #ebeef5; border-radius: 4px; background: white; outline: none; gridline-color: #f0f2f5;
                 font-size: 13px;
@@ -532,7 +567,7 @@ class WtsGuiApp(QMainWindow):
                 color: #409eff; 
             }}
 
-            /* List Containers (Correction) */
+            /* List Containers */
             QScrollArea {{ border: none; background-color: white; }}
             QWidget#list-container {{ background-color: white; }}
 
@@ -587,7 +622,7 @@ class WtsGuiApp(QMainWindow):
         self.tms_tab = TmsConfigTab(self); self.tabs.addTab(self.tms_tab, get_svg_icon("tms", "#409eff"), "TMS Config")
 
         self.statusBar().setStyleSheet(f"background: white; border-top: 1px solid #dcdfe6; padding: 5px; color: #909399; font-size: 12px; font-family: {self.font_family};")
-        self.statusBar().showMessage("WTS System Ready")
+        self.statusBar().showMessage("WTS Ready")
 
     # --- UI Component Helpers ---
 
@@ -646,7 +681,6 @@ class WtsGuiApp(QMainWindow):
         with open(p, 'r', encoding='utf-8') as f:
             for i, line in enumerate(f):
                 s = line.strip()
-                # Strict ignore header-like lines starting with #$ or $
                 if s.startswith("#$") or s.startswith("$"):
                     self.config_data.append({'original': line, 'modified': line, 'type': 'other', 'device': None, 'key': "", 'value': ""})
                     continue
@@ -654,12 +688,10 @@ class WtsGuiApp(QMainWindow):
                 tk = s.lstrip('#').strip()
                 it, dev = 'other', None
                 
-                # Check for device agents (AP/STA only, exclude capture/sniff)
                 if tk.startswith("wfa_control_agent_"):
                     parts = tk.split('!')
                     if len(parts) > 1:
                         cand = parts[0].split('wfa_control_agent_')[1]
-                        # OnlyDUT DUT agents follow testbedX_ap/sta pattern, exclude utility agents
                         if (cand.endswith('_ap') or cand.endswith('_sta')) and not cand.startswith('capture_') and not cand.startswith('sniff_'):
                             dev = cand; self.device_lines.setdefault(dev, []).append(i)
                 
@@ -672,7 +704,6 @@ class WtsGuiApp(QMainWindow):
                         parts = tk.split('!', 1)
                         k_cand = parts[0]
                         v_cand = parts[1].rstrip('!')
-                        # Basic parameter pattern: key!value!
                         if k_cand and (v_cand or "ipaddr=" in v_cand):
                             k, v, it = k_cand, v_cand, ('ip_port_pair' if "ipaddr=" in v_cand else 'kv_pair')
                 
@@ -689,7 +720,6 @@ class WtsGuiApp(QMainWindow):
                 if w: w.deleteLater()
         self.ap_toggles_layout.addWidget(QLabel("<b>APs:</b>")); self.sta_toggles_layout.addWidget(QLabel("<b>STAs:</b>"))
         for dev in sorted(self.device_lines.keys()):
-            # Detect actual enabled state from 'modified' content
             is_en = True
             for idx in self.device_lines[dev]:
                 if self.config_data[idx]['modified'].strip().startswith('#'):
@@ -771,8 +801,9 @@ class WtsGuiApp(QMainWindow):
     def _show_raw_config_viewer(self):
         if not self.config_data: return
         d = QDialog(self); d.setWindowTitle("Raw Configuration Viewer"); d.resize(800, 700); l = QVBoxLayout(d)
+        apply_win_caption_color(d, "#dcdfe6")
         txt = QPlainTextEdit(); txt.setReadOnly(True)
-        txt.setStyleSheet(f"font-family: {self.mono_font_family}; font-size: 12px; background-color: #f8f9fa;")
+        txt.setStyleSheet(f"font-family: {self.mono_font_family}; font-size: 13px; background-color: #f8f9fa; border: 1px solid #dcdfe6;")
         full_content = "".join([d['modified'] for d in self.config_data])
         txt.setPlainText(full_content)
         l.addWidget(txt); bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(d.reject); l.addWidget(bb); d.exec()
@@ -837,7 +868,6 @@ class WtsGuiApp(QMainWindow):
         for s in ["_ap", "_sta"]:
             dev = f"{tb}{s}"
             if dev in self.device_lines:
-                # Use current 'modified' content to determine if enabled
                 for idx in self.device_lines[dev]:
                     if self.config_data[idx]['modified'].strip().startswith('#'): 
                         return False
@@ -845,6 +875,7 @@ class WtsGuiApp(QMainWindow):
 
     def _show_advanced_options_popup(self):
         d = QDialog(self); d.setWindowTitle("Execution Overrides"); d.resize(650, 550); l = QVBoxLayout(d)
+        apply_win_caption_color(d, "#dcdfe6")
         cn = QCheckBox("Show FAIL/NT Cases Only"); cn.setChecked(self.filter_not_pass_only)
         cn.toggled.connect(lambda v: [setattr(self, 'filter_not_pass_only', v), self._update_test_execution_display()]); l.addWidget(cn)
         sp = QSplitter(Qt.Horizontal)
@@ -962,6 +993,7 @@ class WtsGuiApp(QMainWindow):
 
     def _show_documentation(self):
         d = QDialog(self); d.setWindowTitle("WTS User Guide"); d.resize(900, 700); l = QVBoxLayout(d)
+        apply_win_caption_color(d, "#dcdfe6")
         d.setStyleSheet("background-color: white;")
         b = QTextBrowser(); l.addWidget(b)
         bd = os.path.dirname(os.path.abspath(__file__)); pts = [os.path.join(sys._MEIPASS, "README.md") if hasattr(sys, '_MEIPASS') else None, os.path.join(bd, "README.md"), os.path.join(os.path.dirname(bd), "README.md"), "README.md"]
@@ -996,6 +1028,7 @@ class WtsGuiApp(QMainWindow):
         h = self.test_history_map.get(tc, [])
         if not h: return
         d = QDialog(self); d.setWindowTitle(f"Historical Records: {tc}"); d.resize(600, 400); l = QVBoxLayout(d)
+        apply_win_caption_color(d, "#dcdfe6")
         t = QTableWidget(len(h), 2); t.setHorizontalHeaderLabels(["Result", "Folder"]); t.setItemDelegateForColumn(0, StatusPillDelegate(self))
         for i, rec in enumerate(reversed(h)):
             t.setItem(i, 0, QTableWidgetItem(rec['result'])); t.setItem(i, 1, QTableWidgetItem(rec['folder']))
@@ -1071,6 +1104,7 @@ class WtsGuiApp(QMainWindow):
 
     def _show_not_support_config_window(self):
         d = QDialog(self); d.setWindowTitle("Manage Excluded Test Cases"); d.resize(800, 600); l = QVBoxLayout(d)
+        apply_win_caption_color(d, "#dcdfe6")
         ah = QHBoxLayout(); btn_imp = QPushButton("Import List"); btn_sav = QPushButton("Save As..."); btn_imp.setObjectName("ghost-btn"); btn_sav.setObjectName("ghost-btn")
         ah.addWidget(btn_imp); ah.addWidget(btn_sav); ah.addStretch(); l.addLayout(ah)
         g = QGroupBox("Master Exclusion Registry"); gl = QVBoxLayout(g); sc = QScrollArea(); sc.setWidgetResizable(True)
