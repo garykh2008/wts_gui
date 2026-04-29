@@ -43,7 +43,8 @@ SVG_ICONS = {
     "save": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>""",
     "search": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>""",
     "stop": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg>""",
-    "export": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>"""
+    "export": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>""",
+    "eye": """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>"""
 }
 
 # Explicitly import QtSvg to help PyInstaller detect the dependency
@@ -154,10 +155,17 @@ class ConfigTab(QWidget):
         self.main_win.config_path_edit = QLineEdit(); self.main_win.config_path_edit.setPlaceholderText("No file selected...")
         btn_browse = QPushButton("Select File"); btn_browse.setObjectName("ghost-btn")
         btn_browse.clicked.connect(self.main_win._browse_config_file)
+        
         self.main_win.btn_reload_config = QPushButton("Reload"); self.main_win.btn_reload_config.setEnabled(False)
+        self.main_win.btn_reload_config.setObjectName("ghost-btn")
         self.main_win.btn_reload_config.setIcon(get_svg_icon("reload", "#409eff"))
         self.main_win.btn_reload_config.clicked.connect(self.main_win._load_config_data)
-        h_lay.addWidget(self.main_win.config_path_edit); h_lay.addWidget(btn_browse); h_lay.addWidget(self.main_win.btn_reload_config)
+        
+        btn_view_raw = QPushButton("View Raw"); btn_view_raw.setObjectName("ghost-btn")
+        btn_view_raw.setIcon(get_svg_icon("eye", "#606266"))
+        btn_view_raw.clicked.connect(self.main_win._show_raw_config_viewer)
+        
+        h_lay.addWidget(self.main_win.config_path_edit); h_lay.addWidget(btn_browse); h_lay.addWidget(self.main_win.btn_reload_config); h_lay.addWidget(btn_view_raw)
         p_lay.addLayout(h_lay)
         layout.addWidget(path_card)
 
@@ -166,7 +174,7 @@ class ConfigTab(QWidget):
         t_lay.addLayout(self.main_win.ap_toggles_layout); t_lay.addLayout(self.main_win.sta_toggles_layout)
         layout.addWidget(toggle_card)
 
-        content_card, c_lay = self.main_win._create_card_layout("File Content")
+        content_card, c_lay = self.main_win._create_card_layout("Editable Parameters")
         self.main_win.config_tree = QTreeWidget(); self.main_win.config_tree.setHeaderLabels(["Parameter Key", "Current Value"])
         self.main_win.config_tree.setColumnWidth(0, 400); self.main_win.config_tree.setAlternatingRowColors(True)
         self.main_win.config_tree.itemDoubleClicked.connect(self.main_win._on_config_tree_double_click)
@@ -265,7 +273,6 @@ class ExecutionTab(QWidget):
         t_lay.addWidget(self.main_win.terminal)
         right_layout.addWidget(term_card)
 
-        splitter = QSplitter(Qt.Horizontal)
         layout.addWidget(splitter)
         layout.setStretchFactor(dash_container, 0)
         layout.setStretchFactor(splitter, 1)
@@ -319,6 +326,7 @@ class LogBrowserTab(QWidget):
         f_card, fl = self.main_win._create_card_layout("Folder Filter")
         self.main_win.log_date_edit = QDateEdit(); self.main_win.log_date_edit.setCalendarPopup(True); self.main_win.log_date_edit.setDate(QtCore.QDate.currentDate().addMonths(-1))
         btn_ref = QPushButton("Refresh List"); btn_ref.clicked.connect(self.main_win._load_log_folders)
+        btn_ref.setIcon(get_svg_icon("reload", "white"))
         fl.addWidget(QLabel("Show folders after:")); fl.addWidget(self.main_win.log_date_edit); fl.addWidget(btn_ref); ll.addWidget(f_card)
         list_card, lsl = self.main_win._create_card_layout("Folders"); self.main_win.log_folder_list = QListWidget(); self.main_win.log_folder_list.itemSelectionChanged.connect(self.main_win._on_log_folder_select)
         self.main_win.log_folder_list.setContextMenuPolicy(Qt.CustomContextMenu); self.main_win.log_folder_list.customContextMenuRequested.connect(self.main_win._on_log_folder_right_click)
@@ -373,6 +381,8 @@ class TmsConfigTab(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         action_row = QHBoxLayout()
         btn_rel = QPushButton("Reload TmsClient.conf"); btn_sav = QPushButton("Save Config"); btn_sav.setObjectName("action-btn")
+        btn_rel.setIcon(get_svg_icon("reload", "white"))
+        btn_sav.setIcon(get_svg_icon("save", "white"))
         self.main_win.chk_tms_upload = QCheckBox("Sync with TMS Portal"); action_row.addWidget(btn_rel); action_row.addWidget(btn_sav); action_row.addSpacing(20); action_row.addWidget(self.main_win.chk_tms_upload); action_row.addStretch(); layout.addLayout(action_row)
         btn_rel.clicked.connect(self.main_win._load_tms_data); btn_sav.clicked.connect(self.main_win._save_tms_file); self.main_win.chk_tms_upload.clicked.connect(self.main_win._on_tms_upload_toggle)
         t_card, tl = self.main_win._create_card_layout("Raw Configuration Mapping")
@@ -384,7 +394,7 @@ class TmsConfigTab(QWidget):
 class WtsGuiApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.APP_VERSION = "3.2"
+        self.APP_VERSION = "3.3"
         self.app_initialized = False
         self.setWindowTitle(f"WTS GUI Dashboard v{self.APP_VERSION}")
         self.resize(1200, 900)
@@ -443,7 +453,7 @@ class WtsGuiApp(QMainWindow):
         QtCore.QTimer.singleShot(500, self._check_not_support_file)
 
     def _setup_style(self):
-        """Standardized and unified modern style with optimized typography."""
+        """Standardized and unified modern style with optimized typography and robust interactivity."""
         # Use a modern font stack
         self.font_family = "'Segoe UI Variable Text', 'Inter', 'Segoe UI', 'Microsoft YaHei UI', sans-serif"
         self.mono_font_family = "'Cascadia Code', 'Consolas', 'Monaco', monospace"
@@ -497,7 +507,7 @@ class WtsGuiApp(QMainWindow):
             QPushButton#ghost-btn {{ background-color: white; color: #606266; border: 1px solid #dcdfe6; }}
             QPushButton#ghost-btn:hover {{ color: #409eff; border-color: #c6e2ff; background-color: #ecf5ff; }}
 
-            /* Data Views */
+            /* Data Views (Tree/List/Table) with robust selection and hover states */
             QTreeWidget, QListWidget, QTableWidget {{ 
                 border: 1px solid #ebeef5; border-radius: 4px; background: white; outline: none; gridline-color: #f0f2f5;
                 font-size: 13px;
@@ -507,8 +517,20 @@ class WtsGuiApp(QMainWindow):
                 border-bottom: 1px solid #ebeef5; font-weight: 600; color: #909399; 
                 font-size: 12px;
             }}
-            QTableWidget::item:selected {{ background-color: #f0f7ff; color: #409eff; }}
-            QListWidget::item:hover, QTreeWidget::item:hover, QTableWidget::item:hover {{ background-color: #f5f7fa; }}
+            
+            /* States: Selected, Hover, and Selected+Hover */
+            QTableWidget::item:selected, QTreeWidget::item:selected, QListWidget::item:selected {{ 
+                background-color: #ecf5ff; 
+                color: #409eff; 
+            }}
+            QTableWidget::item:hover, QTreeWidget::item:hover, QListWidget::item:hover {{ 
+                background-color: #f5f7fa; 
+                color: #303133; 
+            }}
+            QTableWidget::item:selected:hover, QTreeWidget::item:selected:hover, QListWidget::item:selected:hover {{ 
+                background-color: #d9ecff; 
+                color: #409eff; 
+            }}
 
             /* List Containers (Correction) */
             QScrollArea {{ border: none; background-color: white; }}
@@ -620,25 +642,43 @@ class WtsGuiApp(QMainWindow):
     def _load_config_data(self):
         p = self.config_path_edit.text()
         if not os.path.exists(p): return
-        self.config_tree.clear(); self.config_data = []; self.device_lines = {}
+        self.config_data = []; self.device_lines = {}
         with open(p, 'r', encoding='utf-8') as f:
             for i, line in enumerate(f):
-                s = line.strip(); it, dev = 'other', None; tk = s.lstrip('#').strip()
+                s = line.strip()
+                # Strict ignore header-like lines starting with #$ or $
+                if s.startswith("#$") or s.startswith("$"):
+                    self.config_data.append({'original': line, 'modified': line, 'type': 'other', 'device': None, 'key': "", 'value': ""})
+                    continue
+
+                tk = s.lstrip('#').strip()
+                it, dev = 'other', None
+                
+                # Check for device agents (AP/STA only, exclude capture/sniff)
                 if tk.startswith("wfa_control_agent_"):
                     parts = tk.split('!')
                     if len(parts) > 1:
                         cand = parts[0].split('wfa_control_agent_')[1]
-                        if cand.endswith('_ap') or cand.endswith('_sta'):
+                        # OnlyDUT DUT agents follow testbedX_ap/sta pattern, exclude utility agents
+                        if (cand.endswith('_ap') or cand.endswith('_sta')) and not cand.startswith('capture_') and not cand.startswith('sniff_'):
                             dev = cand; self.device_lines.setdefault(dev, []).append(i)
-                k, v = s, ""
-                if s and not s.startswith('#'):
-                    if s.startswith("define!") and s.count('!') >= 2: parts = s.split('!', 2); k, v, it = parts[1], parts[2].rstrip('!'), 'define_kv_pair'
-                    elif '!' in s: parts = s.split('!', 1); k, v, it = parts[0], parts[1].rstrip('!'), ('ip_port_pair' if "ipaddr=" in parts[1] else 'kv_pair')
-                self.config_data.append({'original': line, 'modified': line, 'type': it, 'device': dev})
-                item = QTreeWidgetItem([k, v])
-                if s.startswith('#'): item.setForeground(0, QtGui.QColor("#909399"))
-                elif it != 'other': item.setBackground(1, QtGui.QColor("#fdf6ec"))
-                self.config_tree.addTopLevelItem(item)
+                
+                k, v = tk, ""
+                if tk:
+                    if tk.startswith("define!") and tk.count('!') >= 2:
+                        parts = tk.split('!', 2)
+                        k, v, it = parts[1], parts[2].rstrip('!'), 'define_kv_pair'
+                    elif '!' in tk:
+                        parts = tk.split('!', 1)
+                        k_cand = parts[0]
+                        v_cand = parts[1].rstrip('!')
+                        # Basic parameter pattern: key!value!
+                        if k_cand and (v_cand or "ipaddr=" in v_cand):
+                            k, v, it = k_cand, v_cand, ('ip_port_pair' if "ipaddr=" in v_cand else 'kv_pair')
+                
+                self.config_data.append({'original': line, 'modified': line, 'type': it, 'device': dev, 'key': k, 'value': v})
+        
+        self._refresh_config_tree()
         self._create_device_toggles(); self.btn_reload_config.setEnabled(True); self.session_settings['config_path'] = p; self._save_session()
         xp = os.path.join(os.path.dirname(p), 'MasterTestInfo.xml'); self._load_xml_data(xp) if os.path.exists(xp) else None
 
@@ -649,10 +689,13 @@ class WtsGuiApp(QMainWindow):
                 if w: w.deleteLater()
         self.ap_toggles_layout.addWidget(QLabel("<b>APs:</b>")); self.sta_toggles_layout.addWidget(QLabel("<b>STAs:</b>"))
         for dev in sorted(self.device_lines.keys()):
-            en = True
+            # Detect actual enabled state from 'modified' content
+            is_en = True
             for idx in self.device_lines[dev]:
-                if f'wfa_control_agent_{dev}!' in self.config_data[idx]['original'] and self.config_data[idx]['original'].strip().startswith('#'): en = False
-            c = QCheckBox(dev); c.setChecked(en); c.clicked.connect(lambda v, d=dev: self._toggle_device(d, v))
+                if self.config_data[idx]['modified'].strip().startswith('#'):
+                    is_en = False
+                    break
+            c = QCheckBox(dev); c.setChecked(is_en); c.clicked.connect(lambda v, d=dev: self._toggle_device(d, v))
             (self.ap_toggles_layout if "_ap" in dev else self.sta_toggles_layout).addWidget(c)
         self.ap_toggles_layout.addStretch(); self.sta_toggles_layout.addStretch()
 
@@ -664,14 +707,27 @@ class WtsGuiApp(QMainWindow):
         self._refresh_config_tree(); self._update_test_execution_display()
 
     def _refresh_config_tree(self):
-        for i in range(self.config_tree.topLevelItemCount()):
-            it = self.config_tree.topLevelItem(i); mod = self.config_data[i]['modified'].strip()
-            if not mod or mod.startswith('#'): it.setText(0, mod); it.setText(1, ""); it.setForeground(0, QtGui.QColor("#909399"))
+        self.config_tree.clear()
+        for idx, d in enumerate(self.config_data):
+            if d['type'] == 'other': continue 
+            
+            mod = d['modified'].strip()
+            is_commented = mod.startswith('#')
+            
+            display_k, display_v = d['key'], d['value']
+            if is_commented:
+                display_k = f"[OFF] {display_k}"
+
+            item = QTreeWidgetItem([display_k, display_v])
+            item.setData(0, Qt.UserRole, idx) 
+            
+            if is_commented:
+                item.setForeground(0, QtGui.QColor("#909399"))
             else:
-                it.setForeground(0, QtGui.QColor("#303133"))
-                if '!' in mod:
-                    is_def = mod.startswith('define!'); parts = mod.split('!', 2 if is_def else 1)
-                    it.setText(0, parts[1] if is_def else parts[0]); it.setText(1, parts[2].rstrip('!') if is_def else parts[1].rstrip('!'))
+                item.setBackground(1, QtGui.QColor("#fdf6ec"))
+                item.setForeground(0, QtGui.QColor("#303133"))
+                
+            self.config_tree.addTopLevelItem(item)
 
     def _save_config_file(self):
         p = self.config_path_edit.text()
@@ -684,13 +740,18 @@ class WtsGuiApp(QMainWindow):
 
     def _on_config_tree_double_click(self, it, col):
         if col != 1: return
-        idx = self.config_tree.indexOfTopLevelItem(it); data = self.config_data[idx]
+        idx = it.data(0, Qt.UserRole); data = self.config_data[idx]
         if data['type'] == 'ip_port_pair': self._edit_ip_port(it, idx)
         elif data['type'] in ['kv_pair', 'define_kv_pair']:
             v, ok = QtWidgets.QInputDialog.getText(self, "Edit Value", f"Field: {it.text(0)}", QLineEdit.Normal, it.text(1))
             if ok:
-                it.setText(1, v); k = it.text(0)
-                self.config_data[idx]['modified'] = f"define!{k}!{v}!\n" if data['type'] == 'define_kv_pair' else f"{k}!{v}!\n"
+                it.setText(1, v); k = it.text(0).replace("[OFF] ", "")
+                self.config_data[idx]['value'] = v
+                new_line = f"define!{k}!{v}!\n" if data['type'] == 'define_kv_pair' else f"{k}!{v}!\n"
+                if it.text(0).startswith("[OFF]"):
+                    self.config_data[idx]['modified'] = "# " + new_line
+                else:
+                    self.config_data[idx]['modified'] = new_line
 
     def _edit_ip_port(self, it, idx):
         vs = it.text(1); ip = re.search(r"ipaddr=([^,]+)", vs).group(1) if "ipaddr=" in vs else ""; pt = re.search(r"port=(\d+)", vs).group(1) if "port=" in vs else ""
@@ -698,7 +759,23 @@ class WtsGuiApp(QMainWindow):
         l.addRow("Agent IP:", i_in); l.addRow("Control Port:", p_in); bt = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bt.accepted.connect(d.accept); bt.rejected.connect(d.reject); l.addWidget(bt)
         if d.exec() == QDialog.Accepted:
-            nv = f"ipaddr={i_in.text()},port={p_in.text()}"; it.setText(1, nv); self.config_data[idx]['modified'] = f"{it.text(0)}!{nv}!\n"
+            nv = f"ipaddr={i_in.text()},port={p_in.text()}"; it.setText(1, nv); 
+            self.config_data[idx]['value'] = nv
+            k = it.text(0).replace("[OFF] ", "")
+            new_line = f"{k}!{nv}!\n"
+            if it.text(0).startswith("[OFF]"):
+                self.config_data[idx]['modified'] = "# " + new_line
+            else:
+                self.config_data[idx]['modified'] = new_line
+
+    def _show_raw_config_viewer(self):
+        if not self.config_data: return
+        d = QDialog(self); d.setWindowTitle("Raw Configuration Viewer"); d.resize(800, 700); l = QVBoxLayout(d)
+        txt = QPlainTextEdit(); txt.setReadOnly(True)
+        txt.setStyleSheet(f"font-family: {self.mono_font_family}; font-size: 12px; background-color: #f8f9fa;")
+        full_content = "".join([d['modified'] for d in self.config_data])
+        txt.setPlainText(full_content)
+        l.addWidget(txt); bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(d.reject); l.addWidget(bb); d.exec()
 
     def _load_xml_data(self, p):
         try:
@@ -760,8 +837,10 @@ class WtsGuiApp(QMainWindow):
         for s in ["_ap", "_sta"]:
             dev = f"{tb}{s}"
             if dev in self.device_lines:
+                # Use current 'modified' content to determine if enabled
                 for idx in self.device_lines[dev]:
-                    if f'wfa_control_agent_{dev}!' in self.config_data[idx]['original'] and self.config_data[idx]['original'].strip().startswith('#'): return False
+                    if self.config_data[idx]['modified'].strip().startswith('#'): 
+                        return False
         return True
 
     def _show_advanced_options_popup(self):
