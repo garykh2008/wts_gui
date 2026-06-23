@@ -356,6 +356,7 @@ class LogBrowserTab(QWidget):
         file_card, fcl = self.main_win._create_card_layout("Log Files")
         self.main_win.log_file_table = QTableWidget(0, 2); self.main_win.log_file_table.setHorizontalHeaderLabels(["Filename", "Size"])
         self.main_win.log_file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch); self.main_win.log_file_table.itemDoubleClicked.connect(self.main_win._open_log_file)
+        self.main_win.log_file_table.setContextMenuPolicy(Qt.CustomContextMenu); self.main_win.log_file_table.customContextMenuRequested.connect(self.main_win._on_log_file_right_click)
         fcl.addWidget(self.main_win.log_file_table); rl.addWidget(file_card)
         
         splitter.addWidget(left); splitter.addWidget(right); splitter.setStretchFactor(1, 2); layout.addWidget(splitter)
@@ -1011,8 +1012,51 @@ class WtsGuiApp(QMainWindow):
     def _on_log_folder_right_click(self, pos):
         it = self.log_folder_list.itemAt(pos)
         if it:
-            m = QMenu(); za = m.addAction("Zip Archive and Export...")
-            if m.exec(self.log_folder_list.mapToGlobal(pos)) == za: self._zip_folder(it.text())
+            m = QMenu()
+            za = m.addAction("Zip Archive and Export...")
+            da = m.addAction("Delete Folder")
+            res = m.exec(self.log_folder_list.mapToGlobal(pos))
+            if res == za:
+                self._zip_folder(it.text())
+            elif res == da:
+                self._delete_log_folder(it.text())
+
+    def _delete_log_folder(self, folder_name):
+        path = os.path.join(self.log_dir_path, folder_name)
+        if not os.path.exists(path): return
+        ans = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete the log folder:\n{folder_name}?", QMessageBox.Yes | QMessageBox.No)
+        if ans == QMessageBox.Yes:
+            try:
+                shutil.rmtree(path)
+                self._load_log_folders()
+                self.log_file_table.setRowCount(0)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete folder:\n{e}")
+
+    def _on_log_file_right_click(self, pos):
+        it = self.log_file_table.itemAt(pos)
+        if it:
+            m = QMenu()
+            da = m.addAction("Delete File")
+            res = m.exec(self.log_file_table.mapToGlobal(pos))
+            if res == da:
+                row = it.row()
+                file_name = self.log_file_table.item(row, 0).text()
+                self._delete_log_file(file_name)
+
+    def _delete_log_file(self, file_name):
+        current_folder_item = self.log_folder_list.currentItem()
+        if not current_folder_item: return
+        folder_name = current_folder_item.text()
+        path = os.path.join(self.log_dir_path, folder_name, file_name)
+        if not os.path.exists(path): return
+        ans = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete the file:\n{file_name}?", QMessageBox.Yes | QMessageBox.No)
+        if ans == QMessageBox.Yes:
+            try:
+                os.remove(path)
+                self._on_log_folder_select()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete file:\n{e}")
 
     def _zip_folder(self, f):
         p, _ = QFileDialog.getSaveFileName(self, "Save Archive", f"{f}.zip", "Archives (*.zip)")
