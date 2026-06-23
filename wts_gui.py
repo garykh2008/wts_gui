@@ -3,6 +3,7 @@ import os
 import re
 import json
 import html
+import zipfile
 import csv
 import shutil
 import threading
@@ -348,7 +349,7 @@ class LogBrowserTab(QWidget):
         btn_ref = QPushButton("Refresh List"); btn_ref.clicked.connect(self.main_win._load_log_folders)
         btn_ref.setIcon(get_svg_icon("reload", "white"))
         fl.addWidget(QLabel("Show folders after:")); fl.addWidget(self.main_win.log_date_edit); fl.addWidget(btn_ref); ll.addWidget(f_card)
-        list_card, lsl = self.main_win._create_card_layout("Folders"); self.main_win.log_folder_list = QListWidget(); self.main_win.log_folder_list.itemSelectionChanged.connect(self.main_win._on_log_folder_select)
+        list_card, lsl = self.main_win._create_card_layout("Folders"); self.main_win.log_folder_list = QListWidget(); self.main_win.log_folder_list.setSelectionMode(QAbstractItemView.ExtendedSelection); self.main_win.log_folder_list.itemSelectionChanged.connect(self.main_win._on_log_folder_select)
         self.main_win.log_folder_list.setContextMenuPolicy(Qt.CustomContextMenu); self.main_win.log_folder_list.customContextMenuRequested.connect(self.main_win._on_log_folder_right_click)
         lsl.addWidget(self.main_win.log_folder_list); ll.addWidget(list_card)
         
@@ -1011,27 +1012,48 @@ class WtsGuiApp(QMainWindow):
 
     def _on_log_folder_right_click(self, pos):
         it = self.log_folder_list.itemAt(pos)
-        if it:
-            m = QMenu()
+        if not it: return
+        if not it.isSelected():
+            self.log_folder_list.clearSelection()
+            it.setSelected(True)
+        selected_items = self.log_folder_list.selectedItems()
+        if not selected_items: return
+        folders = [item.text() for item in selected_items]
+        
+        m = QMenu()
+        if len(folders) == 1:
             za = m.addAction("Zip Archive and Export...")
             da = m.addAction("Delete Folder")
-            res = m.exec(self.log_folder_list.mapToGlobal(pos))
-            if res == za:
-                self._zip_folder(it.text())
-            elif res == da:
-                self._delete_log_folder(it.text())
+        else:
+            za = m.addAction(f"Zip {len(folders)} Folders and Export...")
+            da = m.addAction(f"Delete {len(folders)} Folders")
+            
+        res = m.exec(self.log_folder_list.mapToGlobal(pos))
+        if res == za:
+            self._zip_folders(folders)
+        elif res == da:
+            self._delete_log_folders(folders)
 
-    def _delete_log_folder(self, folder_name):
-        path = os.path.join(self.log_dir_path, folder_name)
-        if not os.path.exists(path): return
-        ans = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete the log folder:\n{folder_name}?", QMessageBox.Yes | QMessageBox.No)
+    def _delete_log_folders(self, folders):
+        if not folders: return
+        if len(folders) == 1:
+            msg = f"Are you sure you want to delete the log folder:\n{folders[0]}?"
+        else:
+            msg = f"Are you sure you want to delete the {len(folders)} selected log folders?"
+        ans = QMessageBox.question(self, "Confirm Delete", msg, QMessageBox.Yes | QMessageBox.No)
         if ans == QMessageBox.Yes:
-            try:
-                shutil.rmtree(path)
-                self._load_log_folders()
-                self.log_file_table.setRowCount(0)
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to delete folder:\n{e}")
+            failed = []
+            for folder in folders:
+                path = os.path.join(self.log_dir_path, folder)
+                if os.path.exists(path):
+                    try:
+                        shutil.rmtree(path)
+                    except Exception as e:
+                        failed.append(f"{folder}: {e}")
+            self._load_log_folders()
+            self.log_file_table.setRowCount(0)
+            if failed:
+                QMessageBox.critical(self, "Error", "Failed to delete some folders:\n" + "\n".join(failed))
 
     def _on_log_file_right_click(self, pos):
         it = self.log_file_table.itemAt(pos)
@@ -1058,11 +1080,24 @@ class WtsGuiApp(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete file:\n{e}")
 
-    def _zip_folder(self, f):
-        p, _ = QFileDialog.getSaveFileName(self, "Save Archive", f"{f}.zip", "Archives (*.zip)")
+    def _zip_folders(self, folders):
+        if not folders: return
+        suggested = f"{folders[0]}.zip" if len(folders) == 1 else "selected_logs.zip"
+        p, _ = QFileDialog.getSaveFileName(self, "Save Archive", suggested, "Archives (*.zip)")
         if p:
-            shutil.make_archive(os.path.splitext(p)[0], 'zip', self.log_dir_path, f)
-            QMessageBox.information(self, "Success", "Log zipped and saved.")
+            try:
+                archive_path = os.path.splitext(p)[0] + ".zip"
+                with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for folder in folders:
+                        folder_path = os.path.join(self.log_dir_path, folder)
+                        for root, dirs, files in os.walk(folder_path):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                arcname = os.path.relpath(file_path, self.log_dir_path)
+                                zipf.write(file_path, arcname)
+                QMessageBox.information(self, "Success", "Log folders zipped and saved.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to zip folders:\n{e}")
 
     def _show_result_context_menu(self, pos):
         it = self.result_table.itemAt(pos)
