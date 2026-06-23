@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import json
+import html
 import csv
 import shutil
 import threading
@@ -907,7 +908,8 @@ class WtsGuiApp(QMainWindow):
                 clr = "#f56c6c"; self.fail_count += 1; self.lbl_fail.setText(str(self.fail_count))
             self.progress_bar.setValue(self.pass_count + self.fail_count)
         elif "---" in t: clr = "#409eff"
-        self.terminal.appendHtml(f"<span style='color: {clr};'>{t.replace('\n','<br>')}</span>")
+        escaped_t = html.escape(t).replace('\n', '<br>')
+        self.terminal.appendHtml(f"<span style='color: {clr};'>{escaped_t}</span>")
         self.terminal.verticalScrollBar().setValue(self.terminal.verticalScrollBar().maximum())
 
     def _run_tests(self):
