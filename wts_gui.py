@@ -141,10 +141,22 @@ class CommandWorker(QThread):
         cmd = self.command
         if os.name == 'nt' and self.use_wsl:
             cmd = ["wsl.exe"] + cmd
+        
+        # Avoid PyInstaller library path pollution (LD_LIBRARY_PATH etc.) in subprocesses
+        env = dict(os.environ)
+        if hasattr(sys, '_MEIPASS'):
+            for key in ['LD_LIBRARY_PATH', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH']:
+                orig_key = key + '_ORIG'
+                if orig_key in env:
+                    env[key] = env[orig_key]
+                else:
+                    env.pop(key, None)
+                    
         try:
             self.process = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
                 text=True, bufsize=1, 
+                env=env,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             for line in iter(self.process.stdout.readline, ''):
@@ -356,6 +368,7 @@ class LogBrowserTab(QWidget):
         right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0)
         file_card, fcl = self.main_win._create_card_layout("Log Files")
         self.main_win.log_file_table = QTableWidget(0, 2); self.main_win.log_file_table.setHorizontalHeaderLabels(["Filename", "Size"])
+        self.main_win.log_file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.main_win.log_file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch); self.main_win.log_file_table.itemDoubleClicked.connect(self.main_win._open_log_file)
         self.main_win.log_file_table.setContextMenuPolicy(Qt.CustomContextMenu); self.main_win.log_file_table.customContextMenuRequested.connect(self.main_win._on_log_file_right_click)
         fcl.addWidget(self.main_win.log_file_table); rl.addWidget(file_card)
@@ -986,14 +999,54 @@ class WtsGuiApp(QMainWindow):
         if not sel: return
         p = os.path.join(self.log_dir_path, sel[0].text())
         for f in sorted(os.listdir(p)):
-            if f.endswith(".log") or "pcapng" in f:
+            if f.lower().endswith(".log") or "pcap" in f.lower():
                 r = self.log_file_table.rowCount(); self.log_file_table.insertRow(r); self.log_file_table.setItem(r, 0, QTableWidgetItem(f))
                 self.log_file_table.setItem(r, 1, QTableWidgetItem(f"{os.path.getsize(os.path.join(p, f))/1024:.1f} KB"))
 
     def _open_log_file(self, it):
-        p = os.path.join(self.log_dir_path, self.log_folder_list.currentItem().text(), self.log_file_table.item(it.row(), 0).text())
-        if os.name == 'nt': os.startfile(p)
-        elif self.linux_editor_command: subprocess.Popen(self.linux_editor_command + [p])
+        file_name = self.log_file_table.item(it.row(), 0).text()
+        p = os.path.join(self.log_dir_path, self.log_folder_list.currentItem().text(), file_name)
+        
+        # Restore/clean library path variables to prevent PyInstaller dependency leakage to subprocesses
+        env = dict(os.environ)
+        if hasattr(sys, '_MEIPASS'):
+            for key in ['LD_LIBRARY_PATH', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH']:
+                orig_key = key + '_ORIG'
+                if orig_key in env:
+                    env[key] = env[orig_key]
+                else:
+                    env.pop(key, None)
+                    
+        lower_name = file_name.lower()
+        is_pcap = any(lower_name.endswith(ext) for ext in [".pcap", ".pcapng", ".pcap.gz", ".pcap.pz", ".pcapng.gz", ".pcapng.pz"])
+        if is_pcap:
+            if os.name == 'nt':
+                ws_paths = [
+                    r"C:\Program Files\Wireshark\Wireshark.exe",
+                    r"C:\Program Files (x86)\Wireshark\Wireshark.exe"
+                ]
+                ws_exe = None
+                for wp in ws_paths:
+                    if os.path.exists(wp):
+                        ws_exe = wp
+                        break
+                if ws_exe:
+                    subprocess.Popen([ws_exe, p], env=env)
+                else:
+                    try:
+                        os.startfile(p)
+                    except Exception as e:
+                        QMessageBox.critical(self, "Error", f"Wireshark not found and system failed to open file:\n{e}")
+            else:
+                if shutil.which("wireshark"):
+                    subprocess.Popen(["wireshark", p], env=env)
+                elif shutil.which("xdg-open"):
+                    subprocess.Popen(["xdg-open", p], env=env)
+                else:
+                    QMessageBox.critical(self, "Error", "Wireshark or xdg-open not found on the system.")
+        else:
+            if os.name == 'nt': os.startfile(p)
+            elif self.linux_editor_command: subprocess.Popen(self.linux_editor_command + [p], env=env)
 
     def _show_documentation(self):
         d = QDialog(self); d.setWindowTitle("WTS User Guide"); d.resize(900, 700); l = QVBoxLayout(d)
