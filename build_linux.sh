@@ -21,8 +21,8 @@ source "$VENV_DIR/bin/activate"
 pip install --upgrade pip
 
 # Install dependencies inside the venv
-echo "Installing dependencies (PySide6, openpyxl, pyinstaller)..."
-pip install PySide6 openpyxl pyinstaller
+echo "Installing dependencies (openpyxl, pyinstaller)..."
+pip install openpyxl pyinstaller
 
 # Clean previous build
 rm -rf build dist
@@ -31,16 +31,15 @@ rm -rf build dist
 # --onefile: Bundle everything into a single executable
 # --windowed: No console window (useful for GUI apps)
 # --add-data: Include README files (Linux separator is ':')
-# --hidden-import: Force include modules to ensure robust packaging
 echo "Running PyInstaller..."
 pyinstaller --name wts_gui \
             --onefile \
             --windowed \
             --add-data "README.md:." \
             --add-data "README_zh-TW.md:." \
+            --add-data "web:web" \
             --hidden-import=openpyxl \
             --hidden-import=et_xmlfile \
-            --hidden-import=PySide6.QtSvg \
             wts_gui.py
 
 if [ $? -eq 0 ]; then

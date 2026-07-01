@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WTS GUI Dashboard</title>
+    <!-- Custom styling -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons (loaded from CDN, with offline fallback icons defined in CSS if needed, but standard browsers will fetch it or we can embed SVG inline. Lucide-static via ESM is very nice, let's load from CDN) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-icon">W</div>
+                <div class="logo-text">WTS <span>Dashboard</span></div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#config" class="nav-item active" data-tab="config">
+                    <i data-lucide="sliders"></i>
+                    <span>Config Editor</span>
+                </a>
+                <a href="#execution" class="nav-item" data-tab="execution">
+                    <i data-lucide="play-circle"></i>
+                    <span>Test Execution</span>
+                </a>
+                <a href="#analytics" class="nav-item" data-tab="analytics">
+                    <i data-lucide="bar-chart-3"></i>
+                    <span>Analytics</span>
+                </a>
+                <a href="#logs" class="nav-item" data-tab="logs">
+                    <i data-lucide="folder-open"></i>
+                    <span>Log Browser</span>
+                </a>
+                <a href="#masterinfo" class="nav-item" data-tab="masterinfo">
+                    <i data-lucide="file-code"></i>
+                    <span>MasterInfo XML</span>
+                </a>
+                <a href="#tms" class="nav-item" data-tab="tms">
+                    <i data-lucide="cloud-lightning"></i>
+                    <span>TMS Config</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <a href="#help" class="nav-item" id="help-btn">
+                    <i data-lucide="help-circle"></i>
+                    <span>User Manual</span>
+                </a>
+                <div class="app-version">v3.5 &bull; Realtek</div>
+            </div>
+        </aside>
+
+        <!-- Main Layout -->
+        <main class="main-content">
+            <!-- App Header -->
+            <header class="main-header">
+                <div class="header-left">
+                    <h1 id="page-title">Configuration Editor</h1>
+                    <div class="config-path-container">
+                        <span class="path-label">Config:</span>
+                        <span id="current-config-path" class="path-value">No file loaded...</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <button class="btn btn-secondary" id="browse-config-btn">
+                        <i data-lucide="folder"></i>
+                        <span>Browse File</span>
+                    </button>
+                    <button class="btn btn-secondary icon-only" id="theme-toggle-btn" title="Toggle Light/Dark Mode">
+                        <i data-lucide="sun"></i>
+                    </button>
+                    <div class="status-indicator">
+                        <span class="status-dot green"></span>
+                        <span id="backend-status-text">Backend Connected</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Scrollable Viewport -->
+            <div class="view-container">
+                
+                <!-- 1. CONFIG TAB -->
+                <section id="tab-config" class="tab-panel active">
+                    <div class="grid-2-1">
+                        <div class="card main-card">
+                            <div class="card-header">
+                                <div class="card-title-group">
+                                    <i data-lucide="settings-2" class="title-icon"></i>
+                                    <h3>Editable Parameters</h3>
+                                </div>
+                                <div class="card-actions">
+                                    <div class="search-box">
+                                        <i data-lucide="search"></i>
+                                        <input type="text" id="config-search" placeholder="Filter parameters...">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body no-padding table-scroll-y">
+                                <table class="table" id="config-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Key Name</th>
+                                            <th>Value</th>
+                                            <th>Type</th>
+                                            <th class="text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="config-table-body">
+                                        <tr>
+                                            <td colspan="4" class="text-center text-muted py-5">
+                                                Please select an AllInitConfig file to display settings.
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="sidebar-cards-column">
+                            <!-- Device control card -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="card-title-group">
+                                        <i data-lucide="cpu" class="title-icon"></i>
+                                        <h3>Device Control</h3>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <p class="description-text">Enable or disable testing platforms (AP/STA) in the configuration file.</p>
+                                    <div class="toggles-group">
+                                        <h4>AP Devices</h4>
+                                        <div class="toggles-list" id="ap-toggles-container">
+                                            <span class="text-muted">No configuration loaded.</span>
+                                        </div>
+                                    </div>
+                                    <div class="toggles-group mt-4">
+                                        <h4>STA Devices</h4>
+                                        <div class="toggles-list" id="sta-toggles-container">
+                                            <span class="text-muted">No configuration loaded.</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Actions card -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="card-title-group">
+                                        <i data-lucide="save" class="title-icon"></i>
+                                        <h3>Commit Changes</h3>
+                                    </div>
+                                </div>
+                                <div class="card-body text-center">
+                                    <p class="description-text mb-4 text-left">Save your modifications back to the AllInitConfig file. Unsaved changes will be lost.</p>
+                                    <div class="vertical-actions">
+                                        <button class="btn btn-primary w-100" id="save-config-btn" disabled>
+                                            <i data-lucide="check-circle-2"></i>
+                                            <span>Save AllInitConfig</span>
+                                        </button>
+                                        <button class="btn btn-secondary w-100 mt-2" id="reload-config-btn" disabled>
+                                            <i data-lucide="rotate-ccw"></i>
+                                            <span>Reload File</span>
+                                        </button>
+                                        <button class="btn btn-secondary w-100 mt-2" id="view-raw-config-btn" disabled>
+                                            <i data-lucide="eye"></i>
+                                            <span>View Raw Configuration</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 2. EXECUTION TAB -->
+                <section id="tab-execution" class="tab-panel">
+                    <!-- Dashboard mini-stats -->
+                    <div class="dashboard-stats-row">
+                        <div class="stat-card">
+                            <div class="stat-icon blue"><i data-lucide="check-square"></i></div>
+                            <div class="stat-info">
+                                <span class="stat-label">Total Selected</span>
+                                <span class="stat-val" id="exec-stat-total">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon green"><i data-lucide="smile"></i></div>
+                            <div class="stat-info">
+                                <span class="stat-label">Passed</span>
+                                <span class="stat-val" id="exec-stat-pass">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon red"><i data-lucide="frown"></i></div>
+                            <div class="stat-info">
+                                <span class="stat-label">Failed</span>
+                                <span class="stat-val" id="exec-stat-fail">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-card progress-card flex-grow">
+                            <div class="progress-info-row">
+                                <span class="progress-label">Test Suite Progress</span>
+                                <span class="progress-percent" id="exec-progress-text">0%</span>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar-fill" id="exec-progress-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid-1-2 mt-4">
+                        <!-- Left pane: Suite selection -->
+                        <div class="card flex-column">
+                            <div class="card-header">
+                                <div class="card-title-group">
+                                    <i data-lucide="list-checks" class="title-icon"></i>
+                                    <h3 id="exec-suite-title">Test Suite Selection</h3>
+                                </div>
+                            </div>
+                            <div class="card-filters-row">
+                                <div class="role-selector">
+                                    <button class="role-btn active" data-role="All">All</button>
+                                    <button class="role-btn" data-role="AP">AP</button>
+                                    <button class="role-btn" data-role="STA">STA</button>
+                                </div>
+                                <div class="search-box compact">
+                                    <i data-lucide="search"></i>
+                                    <input type="text" id="exec-search" placeholder="Search tests...">
+                                </div>
+                            </div>
+                            <div class="card-selection-controls">
+                                <button class="btn btn-secondary btn-xs" id="exec-select-all">Select All</button>
+                                <button class="btn btn-secondary btn-xs ml-2" id="exec-clear-all">Clear</button>
+                                <button class="btn btn-secondary btn-xs ml-auto" id="exec-adv-btn" title="Advanced filtering overrides">
+                                    <i data-lucide="sliders-horizontal" class="icon-xs"></i>
+                                    <span>Overrides</span>
+                                </button>
+                                <button class="btn btn-secondary btn-xs ml-2" id="exec-exclusions-btn" title="Manage excluded registry">
+                                    <i data-lucide="shield-alert" class="icon-xs"></i>
+                                    <span>Exclusions</span>
+                                </button>
+                            </div>
+                            <div class="card-body scroll-y border-top mt-2" style="max-height: 480px;">
+                                <div class="checkbox-list" id="exec-checkbox-list">
+                                    <div class="text-muted text-center py-5">Please load a configuration first.</div>
+                                </div>
+                            </div>
+                            <div class="card-footer mt-auto pt-3 border-top flex-row">
+                                <button class="btn btn-success flex-grow" id="start-testing-btn" disabled>
+                                    <i data-lucide="play"></i>
+                                    <span>START TESTING</span>
+                                </button>
+                                <button class="btn btn-danger ml-2" id="stop-testing-btn" disabled>
+                                    <i data-lucide="square"></i>
+                                    <span>ABORT</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Right pane: Console Terminal -->
+                        <div class="card flex-column">
+                            <div class="card-header">
+                                <div class="card-title-group">
+                                    <i data-lucide="terminal" class="title-icon"></i>
+                                    <h3>Command Terminal</h3>
+                                </div>
+                                <div class="card-actions">
+                                    <button class="btn btn-secondary btn-xs" id="clear-terminal-btn">
+                                        <i data-lucide="trash-2" class="icon-xs"></i>
+                                        <span>Clear</span>
+                                    </button>
+                                    <button class="btn btn-secondary btn-xs ml-2" id="copy-terminal-btn">
+                                        <i data-lucide="copy" class="icon-xs"></i>
+                                        <span>Copy</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body no-padding flex-grow flex-column">
+                                <div class="terminal-view" id="terminal-output">
+                                    <div class="terminal-line system-msg">[System] Console initialized. Ready to execute tests.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 3. ANALYTICS TAB -->
+                <section id="tab-analytics" class="tab-panel">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title-group">
+                                <i data-lucide="filter" class="title-icon"></i>
+                                <h3>Scan & Filter Parameters</h3>
+                            </div>
+                        </div>
+                        <div class="card-body py-4">
+                            <div class="filters-layout">
+                                <div class="filter-item">
+                                    <label>Role</label>
+                                    <div class="role-selector" id="analytics-role-selector">
+                                        <button class="role-btn active" data-role="All">All</button>
+                                        <button class="role-btn" data-role="AP">AP</button>
+                                        <button class="role-btn" data-role="STA">STA</button>
+                                    </div>
+                                </div>
+                                <div class="filter-item">
+                                    <label>Logs Since Date</label>
+                                    <input type="date" id="analytics-date-input" class="form-control">
+                                </div>
+                                <div class="filter-item flex-row mt-auto gap-4">
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" id="hide-nt-checkbox">
+                                        <span class="checkmark"></span>
+                                        <span>Hide NT (Not Tested)</span>
+                                    </label>
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" id="hide-excluded-checkbox">
+                                        <span class="checkmark"></span>
+                                        <span>Hide Excluded (Not Support)</span>
+                                    </label>
+                                </div>
+                                <div class="filter-item ml-auto flex-row mt-auto">
+                                    <button class="btn btn-primary" id="scan-results-btn">
+                                        <i data-lucide="search"></i>
+                                        <span>Scan Results</span>
+                                    </button>
+                                    <button class="btn btn-secondary ml-2" id="export-results-btn" disabled>
+                                        <i data-lucide="download"></i>
+                                        <span>Export...</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <div class="card-title-group">
+                                <i data-lucide="clipboard-list" class="title-icon"></i>
+                                <h3>Testing Summary</h3>
+                            </div>
+                            <span class="header-badge" id="analytics-summary-badge">Scan not performed</span>
+                        </div>
+                        <div class="card-body no-padding table-scroll-y">
+                            <table class="table" id="analytics-table">
+                                <thead>
+                                    <tr>
+                                        <th>Test Case Name</th>
+                                        <th style="width: 150px; text-align: center;">Final Status</th>
+                                        <th>Log Directory</th>
+                                        <th class="text-right" style="width: 100px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="analytics-table-body">
+                                    <tr>
+                                        <td colspan="4" class="text-center text-muted py-5">
+                                            Click "Scan Results" to load test outcomes.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 4. LOG BROWSER TAB -->
+                <section id="tab-logs" class="tab-panel">
+                    <div class="grid-1-2">
+                        <!-- Left pane: folder browser -->
+                        <div class="card flex-column">
+                            <div class="card-header">
+                                <div class="card-title-group">
+                                    <i data-lucide="folder" class="title-icon"></i>
+                                    <h3>Folder Filter</h3>
+                                </div>
+                            </div>
+                            <div class="card-body py-3 border-bottom">
+                                <div class="form-group mb-3">
+                                    <label class="form-label">Show folders after:</label>
+                                    <input type="date" id="log-date-filter" class="form-control">
+                                </div>
+                                <button class="btn btn-secondary w-100" id="refresh-logs-btn">
+                                    <i data-lucide="refresh-cw"></i>
+                                    <span>Refresh List</span>
+                                </button>
+                            </div>
+                            <div class="card-header py-3">
+                                <h3>Folders</h3>
+                                <div class="card-actions" id="folder-bulk-actions" style="display: none;">
+                                    <button class="btn btn-secondary btn-xs" id="bulk-zip-folders" title="Zip selected folders">
+                                        <i data-lucide="file-archive" class="icon-xs"></i>
+                                    </button>
+                                    <button class="btn btn-danger btn-xs ml-1" id="bulk-delete-folders" title="Delete selected folders">
+                                        <i data-lucide="trash-2" class="icon-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body scroll-y no-padding flex-grow" style="max-height: 400px;">
+                                <ul class="list-group" id="log-folders-list">
+                                    <li class="list-group-item text-center text-muted py-5">No log folders loaded.</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Right pane: files list -->
+                        <div class="card flex-column">
+                            <div class="card-header">
+                                <div class="card-title-group">
+                                    <i data-lucide="file-text" class="title-icon"></i>
+                                    <h3>Log Files</h3>
+                                </div>
+                            </div>
+                            <div class="card-body no-padding table-scroll-y flex-grow" style="min-height: 480px;">
+                                <table class="table" id="log-files-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Filename</th>
+                                            <th>Size</th>
+                                            <th class="text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="log-files-table-body">
+                                        <tr>
+                                            <td colspan="3" class="text-center text-muted py-5">Select a log folder from the left pane to view files.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 5. MASTERINFO TAB -->
+                <section id="tab-masterinfo" class="tab-panel">
+                    <div class="grid-1-2">
+                        <!-- Left: xml elements search list -->
+                        <div class="card flex-column">
+                            <div class="card-header">
+                                <div class="card-title-group">
+                                    <i data-lucide="search" class="title-icon"></i>
+                                    <h3>Quick Find</h3>
+                                </div>
+                            </div>
+                            <div class="card-filters-row">
+                                <div class="role-selector" id="xml-role-selector">
+                                    <button class="role-btn active" data-role="All">All</button>
+                                    <button class="role-btn" data-role="AP">AP</button>
+                                    <button class="role-btn" data-role="STA">STA</button>
+                                </div>
+                                <div class="search-box compact">
+                                    <i data-lucide="search"></i>
+                                    <input type="text" id="xml-search" placeholder="Search parameters...">
+                                </div>
+                            </div>
+                            <div class="card-header border-top py-3">
+                                <h3>Test Definitions</h3>
+                            </div>
+                            <div class="card-body scroll-y no-padding flex-grow" style="max-height: 450px;">
+                                <ul class="list-group" id="xml-cases-list">
+                                    <li class="list-group-item text-center text-muted py-5">Load a configuration file to automatically sync XML specifications.</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Right: xml item details -->
+                        <div class="card flex-column">
+                            <div class="card-header">
+                                <div class="card-title-group">
+                                    <i data-lucide="info" class="title-icon"></i>
+                                    <h3>Parameter Details</h3>
+                                </div>
+                            </div>
+                            <div class="card-body no-padding table-scroll-y flex-grow" style="min-height: 480px;">
+                                <table class="table" id="xml-details-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Key</th>
+                                            <th>Value</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="xml-details-body">
+                                        <tr>
+                                            <td colspan="2" class="text-center text-muted py-5">Select a testcase from the left list to see details.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 6. TMS CONFIG TAB -->
+                <section id="tab-tms" class="tab-panel">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title-group">
+                                <i data-lucide="settings" class="title-icon"></i>
+                                <h3>TMS Sync Configuration</h3>
+                            </div>
+                            <div class="card-actions">
+                                <label class="switch-container">
+                                    <input type="checkbox" id="tms-upload-toggle">
+                                    <span class="switch-slider"></span>
+                                </label>
+                                <span class="switch-label">Sync with TMS Portal</span>
+                            </div>
+                        </div>
+                        <div class="card-body py-3 border-bottom flex-row">
+                            <button class="btn btn-secondary" id="reload-tms-btn">
+                                <i data-lucide="rotate-ccw"></i>
+                                <span>Reload TmsClient.conf</span>
+                            </button>
+                            <button class="btn btn-primary ml-2" id="save-tms-btn">
+                                <i data-lucide="save"></i>
+                                <span>Save Config</span>
+                            </button>
+                        </div>
+                        <div class="card-header py-3">
+                            <h3>Raw Configuration Mapping</h3>
+                        </div>
+                        <div class="card-body no-padding table-scroll-y">
+                            <table class="table" id="tms-table">
+                                <thead>
+                                    <tr>
+                                        <th>Config Key</th>
+                                        <th>Value</th>
+                                        <th class="text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tms-table-body">
+                                    <tr>
+                                        <td colspan="3" class="text-center text-muted py-5">No TMS settings loaded. Ensure TmsClient.conf exists.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- 7. HELP TAB (Modal Guide alternative) -->
+                <section id="tab-help" class="tab-panel">
+                    <div class="card">
+                        <div class="card-body markdown-body" id="help-markdown-content">
+                            <h2>WTS GUI User Guide</h2>
+                            <p>Loading documentation...</p>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- ==================== MODAL DIALOGS ==================== -->
+
+    <!-- Backdrop overlay -->
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+
+    <!-- 1. Edit IP / Port Connection Modal -->
+    <div class="modal" id="edit-connection-modal">
+        <div class="modal-header">
+            <h3>Edit Connection Details</h3>
+            <button class="modal-close" data-modal="edit-connection-modal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group mb-3">
+                <label class="form-label" for="conn-ip-input">Agent IP Address</label>
+                <input type="text" id="conn-ip-input" class="form-control" placeholder="e.g. 192.168.1.1">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="conn-port-input">Control Port</label>
+                <input type="number" id="conn-port-input" class="form-control" placeholder="e.g. 8000">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" data-modal="edit-connection-modal">Cancel</button>
+            <button class="btn btn-primary" id="save-connection-btn">Save Settings</button>
+        </div>
+    </div>
+
+    <!-- 2. Edit Text Value Modal -->
+    <div class="modal" id="edit-value-modal">
+        <div class="modal-header">
+            <h3>Edit Parameter Value</h3>
+            <button class="modal-close" data-modal="edit-value-modal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label" id="edit-value-label">Update Field:</label>
+                <input type="text" id="edit-value-input" class="form-control">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" data-modal="edit-value-modal">Cancel</button>
+            <button class="btn btn-primary" id="save-value-btn">Apply</button>
+        </div>
+    </div>
+
+    <!-- 3. Advanced Filtering Overrides Modal -->
+    <div class="modal size-large" id="adv-filter-modal">
+        <div class="modal-header">
+            <h3>Execution Overrides</h3>
+            <button class="modal-close" data-modal="adv-filter-modal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body flex-column">
+            <label class="checkbox-container mb-4">
+                <input type="checkbox" id="exec-notpass-only">
+                <span class="checkmark"></span>
+                <span class="font-semibold text-white">Show FAIL/NT Cases Only</span>
+            </label>
+            
+            <div class="grid-2 gap-4 flex-grow">
+                <div class="flex-column">
+                    <h4 class="modal-section-title">Include List (Preferred testbeds)</h4>
+                    <div class="border scroll-y checkbox-list-container flex-grow" id="adv-include-testbeds-list">
+                        <!-- Checkboxes of testbeds -->
+                    </div>
+                </div>
+                <div class="flex-column">
+                    <h4 class="modal-section-title">Exclude List (Ignored testbeds)</h4>
+                    <div class="border scroll-y checkbox-list-container flex-grow" id="adv-exclude-testbeds-list">
+                        <!-- Checkboxes of testbeds -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" data-modal="adv-filter-modal">Close Dashboard</button>
+        </div>
+    </div>
+
+    <!-- 4. Exclusions List Registry Modal -->
+    <div class="modal size-large" id="exclusions-modal">
+        <div class="modal-header">
+            <h3>Manage Excluded Test Cases</h3>
+            <button class="modal-close" data-modal="exclusions-modal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body flex-column">
+            <div class="flex-row mb-3 gap-2">
+                <button class="btn btn-secondary btn-sm" id="ex-import-btn">Import List</button>
+                <button class="btn btn-secondary btn-sm" id="ex-export-btn">Save As...</button>
+                <button class="btn btn-secondary btn-sm" id="ex-select-all-btn">Select All</button>
+                <button class="btn btn-secondary btn-sm" id="ex-clear-all-btn">Clear All</button>
+            </div>
+            <h4 class="modal-section-title">Master Exclusion Registry</h4>
+            <div class="border scroll-y checkbox-list-container flex-grow" style="height: 350px;">
+                <div class="checkbox-list px-3 py-2" id="exclusions-checkbox-list">
+                    <!-- Checkboxes -->
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" data-modal="exclusions-modal">Cancel</button>
+            <button class="btn btn-primary" id="ex-save-btn">Save & Close Dashboard</button>
+        </div>
+    </div>
+
+    <!-- 5. Run History Modal -->
+    <div class="modal" id="history-modal">
+        <div class="modal-header">
+            <h3 id="history-modal-title">Historical Records</h3>
+            <button class="modal-close" data-modal="history-modal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body scroll-y no-padding" style="max-height: 350px;">
+            <table class="table" id="history-table">
+                <thead>
+                    <tr>
+                        <th style="width: 150px; text-align: center;">Result</th>
+                        <th>Folder</th>
+                    </tr>
+                </thead>
+                <tbody id="history-table-body">
+                    <!-- History rows -->
+                </tbody>
+            </table>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" data-modal="history-modal">Close</button>
+        </div>
+    </div>
+
+    <!-- 6. Raw Config File Viewer -->
+    <div class="modal size-large" id="raw-config-modal">
+        <div class="modal-header">
+            <h3>Raw Configuration Viewer</h3>
+            <button class="modal-close" data-modal="raw-config-modal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body flex-column">
+            <textarea id="raw-config-content" class="raw-code-view" readonly></textarea>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" data-modal="raw-config-modal">Close</button>
+        </div>
+    </div>
+
+    <!-- 7. Inline Log File Viewer -->
+    <div class="modal size-large" id="log-view-modal">
+        <div class="modal-header">
+            <h3 id="log-view-title">Log File Preview</h3>
+            <div class="header-actions ml-auto mr-4" style="display: flex; align-items: center; gap: 0.75rem;">
+                <label class="flex-row gap-1" style="font-size: 0.8rem; cursor: pointer; color: var(--text-secondary); user-select: none;">
+                    <input type="checkbox" id="log-view-wrap-btn" style="cursor: pointer; margin-right: 0.25rem;">
+                    <span>Line Wrap</span>
+                </label>
+                <button class="btn btn-secondary btn-xs" id="log-view-maximize-btn" title="Toggle Fullscreen">
+                    <i data-lucide="maximize" class="icon-xs"></i>
+                </button>
+                <button class="btn btn-secondary btn-xs" id="log-view-copy-btn" title="Copy Logs">
+                    <i data-lucide="copy" class="icon-xs"></i>
+                    <span>Copy Logs</span>
+                </button>
+            </div>
+            <button class="modal-close" data-modal="log-view-modal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body flex-column">
+            <pre class="log-pre-view scroll-x scroll-y" id="log-view-content"></pre>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" data-modal="log-view-modal">Close Preview</button>
+        </div>
+    </div>
+
+    <!-- 8. Web-native File Browser Modal -->
+    <div class="modal size-large" id="file-browser-modal">
+        <div class="modal-header">
+            <h3>Select Configuration File</h3>
+            <button class="modal-close" data-modal="file-browser-modal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body flex-column" style="height: 420px;">
+            <div class="fs-navigation-row mb-3 flex-row gap-2" style="display: flex; align-items: center; width: 100%;">
+                <button class="btn btn-secondary btn-sm" id="fs-go-up-btn" title="Go to Parent Folder">
+                    <i data-lucide="arrow-up"></i>
+                </button>
+                <div class="path-input-container flex-grow">
+                    <input type="text" id="fs-path-input" class="form-control" placeholder="Folder path...">
+                </div>
+                <button class="btn btn-secondary btn-sm" id="fs-go-btn">Go</button>
+            </div>
+            <div class="fs-browser-container border scroll-y flex-grow" style="height: 300px; overflow-y: auto;">
+                <ul class="list-group" id="fs-entries-list">
+                    <!-- Directory entries will load here -->
+                </ul>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <span class="fs-selected-file-label mr-auto text-muted" id="fs-selected-file-display" style="align-self: center; font-size: 0.85rem;">No file selected</span>
+            <button class="btn btn-secondary" data-modal="file-browser-modal">Cancel</button>
+            <button class="btn btn-primary" id="fs-confirm-btn" disabled>Select File</button>
+        </div>
+    </div>
+
+    <!-- Main Controller Logic -->
+    <script src="app.js" type="module"></script>
+</body>
+</html>

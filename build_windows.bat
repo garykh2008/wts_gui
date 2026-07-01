@@ -19,7 +19,7 @@ if exist dist rmdir /s /q dist
 :: --onefile: Bundle everything into a single executable
 :: --windowed: No console window
 :: --add-data: Include README.md (Windows separator is ';')
-pyinstaller --name wts_gui --onefile --windowed --add-data "README.md;." wts_gui.py
+pyinstaller --name wts_gui --onefile --windowed --add-data "README.md;." --add-data "web;web" wts_gui.py
 
 if %errorlevel% equ 0 (
     echo.
