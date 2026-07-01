@@ -1733,6 +1733,35 @@ document.getElementById('save-tms-btn').addEventListener('click', async () => {
     }
 });
 
+// ==================== TMS Portal Link Logic ====================
+
+function openTmsPortal() {
+    let eventId = '';
+    if (state.tmsParams && state.tmsParams.length > 0) {
+        const param = state.tmsParams.find(p => p.key === 'TmsEventId');
+        if (param && param.value) {
+            eventId = param.value.trim();
+        }
+    }
+    
+    if (eventId && eventId !== 'XXXXX') {
+        navigator.clipboard.writeText(eventId).then(() => {
+            showNotification(`Copied Event ID (${eventId}) to clipboard! Opening TMS Portal...`, 'green');
+        }).catch(err => {
+            console.error('Failed to copy text: ', err);
+            showNotification(`Opening TMS Portal... (Event ID: ${eventId})`, 'blue');
+        });
+    } else {
+        showNotification('Opening TMS Portal...', 'blue');
+    }
+    
+    window.open('https://tms.wi-fi.org/', '_blank');
+}
+
+document.getElementById('open-tms-portal-btn').addEventListener('click', openTmsPortal);
+document.getElementById('analytics-tms-portal-btn').addEventListener('click', openTmsPortal);
+
+
 // ==================== User Guide Logic ====================
 
 async function loadUserGuide() {
