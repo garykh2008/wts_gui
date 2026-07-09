@@ -289,6 +289,10 @@ async function loadConfigDetails() {
         document.getElementById('save-config-btn').disabled = false;
         document.getElementById('reload-config-btn').disabled = false;
         document.getElementById('view-raw-config-btn').disabled = false;
+        
+        // Enable check alive button & trigger check
+        document.getElementById('check-alive-btn').disabled = false;
+        runCheckAlive();
     }
 }
 
@@ -485,6 +489,65 @@ function renderDeviceToggles() {
     stas.forEach(d => renderRow(d, containerSta));
 }
 
+async function runCheckAlive() {
+    if (!state.configPath) return;
+    
+    const btn = document.getElementById('check-alive-btn');
+    const container = document.getElementById('check-alive-list');
+    
+    // Set UI to checking state
+    btn.disabled = true;
+    btn.innerHTML = `<i data-lucide="loader-2" class="icon-spin" style="width: 14px; height: 14px;"></i>`;
+    lucide.createIcons();
+    
+    // Update existing elements to "checking..."
+    const badges = container.querySelectorAll('.badge');
+    badges.forEach(badge => {
+        badge.className = 'badge badge-checking';
+        badge.innerText = 'CHECKING...';
+    });
+    
+    try {
+        const res = await apiFetch(`/api/config/check-alive?path=${encodeURIComponent(state.configPath)}`);
+        
+        if (res && res.results) {
+            container.innerHTML = '';
+            if (res.results.length === 0) {
+                container.innerHTML = '<span class="text-muted">No active devices to check.</span>';
+            } else {
+                res.results.forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = 'alive-item';
+                    
+                    const targetDisplay = item.port ? `${item.ip}:${item.port}` : item.ip;
+                    const typeLabel = item.type.toUpperCase();
+                    
+                    const statusClass = item.status === 'online' ? 'badge-online' : 'badge-offline';
+                    const statusText = item.status.toUpperCase();
+                    
+                    row.innerHTML = `
+                        <div class="alive-info">
+                            <span class="alive-name" title="${item.key}">${item.key}</span>
+                            <span class="alive-target">${targetDisplay} (${typeLabel})</span>
+                        </div>
+                        <span class="badge ${statusClass}">${statusText}</span>
+                    `;
+                    container.appendChild(row);
+                });
+            }
+        } else {
+            container.innerHTML = '<span class="text-danger">Failed to check status.</span>';
+        }
+    } catch (e) {
+        console.error("Error checking alive status:", e);
+        container.innerHTML = '<span class="text-danger">Error checking status.</span>';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>`;
+        lucide.createIcons();
+    }
+}
+
 // Modal handling logic
 function openModal(modalId) {
     document.getElementById('modal-backdrop').style.display = 'block';
@@ -595,6 +658,10 @@ document.getElementById('reload-config-btn').addEventListener('click', async () 
 });
 
 // View raw configuration modal
+document.getElementById('check-alive-btn').addEventListener('click', () => {
+    runCheckAlive();
+});
+
 document.getElementById('view-raw-config-btn').addEventListener('click', async () => {
     const res = await apiFetch(`/api/config?path=${encodeURIComponent(state.configPath)}`);
     if (res && !res.error) {

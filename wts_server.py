@@ -13,6 +13,8 @@ from datetime import datetime
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import queue
+import socket
+from concurrent.futures import ThreadPoolExecutor
 
 # Global variables for application state
 DATA_DIR = ""
@@ -399,6 +401,39 @@ def find_paired_wireless_ip_index(config_data, agent_idx):
                     
     return None
 
+# --- Helper Functions for Checking Device Status (Check Alive) ---
+def is_valid_ip(s):
+    s = s.strip()
+    try:
+        socket.inet_aton(s)
+        return True
+    except socket.error:
+        pass
+    try:
+        socket.inet_pton(socket.AF_INET6, s)
+        return True
+    except (socket.error, AttributeError):
+        pass
+    return False
+
+def check_tcp_port(ip, port, timeout=1.0):
+    try:
+        with socket.create_connection((ip, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+def ping_ip(ip, timeout=1.0):
+    if os.name == 'nt':
+        cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), ip]
+    else:
+        cmd = ["ping", "-c", "1", "-W", str(int(timeout)), ip]
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout + 0.5)
+        return res.returncode == 0
+    except Exception:
+        return False
+
 # --- HTTP Request Handler ---
 
 class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
@@ -647,6 +682,82 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                             } for idx, d in enumerate(config_data) if d["type"] != "other"
                         ]
                     }
+                    
+            elif path == "/api/config/check-alive":
+                cfg_path = query.get("path", [SESSION_SETTINGS.get("config_path", "")])[0]
+                print(f"[DEBUG] /api/config/check-alive path: {cfg_path}")
+                if not cfg_path or not os.path.exists(cfg_path):
+                    print(f"[ERROR] /api/config/check-alive: File not found at {cfg_path}")
+                    response_data = {"error": "Config file not found", "path": cfg_path}
+                else:
+                    config_data, device_lines = load_config_data(cfg_path)
+                    
+                    targets = []
+                    # Identify all uncommented settings that contain IP addresses
+                    for idx, d in enumerate(config_data):
+                        # skip if commented out or type is 'other'
+                        if d["modified"].strip().startswith('#') or d["type"] == "other":
+                            continue
+                        
+                        key = d["key"].strip()
+                        val = d["value"].strip()
+                        
+                        # Only check keys that look like device/component settings (start with wfa_, contain agent, or HostAPDIPAddress)
+                        key_lower = key.lower()
+                        if not (key_lower.startswith("wfa_") or "agent" in key_lower or key_lower == "hostapdipaddress"):
+                            continue
+                        
+                        # Skip if key contains wireless (case-insensitive)
+                        if "wireless" in key_lower:
+                            continue
+                            
+                        # Case 1: IP + Port pair (ipaddr=X,port=Y format)
+                        ip_match = re.search(r'ipaddr=([^,!]+)', val)
+                        port_match = re.search(r'port=(\d+)', val)
+                        
+                        if ip_match:
+                            ip = ip_match.group(1).strip()
+                            port = int(port_match.group(1).strip()) if port_match else None
+                            if ip:
+                                targets.append({
+                                    "key": key,
+                                    "ip": ip,
+                                    "port": port,
+                                    "type": "tcp" if port is not None else "ping"
+                                })
+                        else:
+                            # Case 2: raw value might be an IP address without port
+                            if is_valid_ip(val):
+                                targets.append({
+                                    "key": key,
+                                    "ip": val,
+                                    "port": None,
+                                    "type": "ping"
+                                })
+                                
+                    # Execute checks in parallel
+                    def check_target(t):
+                        status = "offline"
+                        if t["type"] == "tcp":
+                            if check_tcp_port(t["ip"], t["port"]):
+                                status = "online"
+                        else:
+                            if ping_ip(t["ip"]):
+                                status = "online"
+                        return {
+                            "key": t["key"],
+                            "ip": t["ip"],
+                            "port": t["port"],
+                            "type": t["type"],
+                            "status": status
+                        }
+                    
+                    results = []
+                    if targets:
+                        with ThreadPoolExecutor(max_workers=min(len(targets), 16)) as executor:
+                            results = list(executor.map(check_target, targets))
+                            
+                    response_data = {"success": True, "results": results}
                     
             elif path == "/api/xml-data":
                 cfg_path = query.get("path", [SESSION_SETTINGS.get("config_path", "")])[0]

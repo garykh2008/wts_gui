@@ -90,37 +90,65 @@
                 <!-- 1. CONFIG TAB -->
                 <section id="tab-config" class="tab-panel active">
                     <div class="grid-2-1">
-                        <div class="card main-card">
-                            <div class="card-header">
-                                <div class="card-title-group">
-                                    <i data-lucide="settings-2" class="title-icon"></i>
-                                    <h3>Editable Parameters</h3>
-                                </div>
-                                <div class="card-actions">
-                                    <div class="search-box">
-                                        <i data-lucide="search"></i>
-                                        <input type="text" id="config-search" placeholder="Filter parameters...">
+                        <div class="main-column" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                            <!-- Commit Changes card -->
+                            <div class="card" id="commit-changes-card">
+                                <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1.25rem;">
+                                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <i data-lucide="save" style="color: var(--accent-color); width: 20px; height: 20px;"></i>
+                                        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600;">Commit Changes</h4>
+                                        <span class="text-muted text-xs-hide" style="font-size: 0.8rem;">(Save modifications back to AllInitConfig)</span>
+                                    </div>
+                                    <div style="display: flex; gap: 0.75rem;">
+                                        <button class="btn btn-primary" id="save-config-btn" disabled style="padding: 0.5rem 1rem; font-size: 0.85rem; height: auto; min-width: auto; width: auto;">
+                                            <i data-lucide="check-circle-2" style="width: 16px; height: 16px; margin-right: 0.35rem;"></i>
+                                            <span>Save AllInitConfig</span>
+                                        </button>
+                                        <button class="btn btn-secondary" id="reload-config-btn" disabled style="padding: 0.5rem 1rem; font-size: 0.85rem; height: auto; min-width: auto; width: auto;">
+                                            <i data-lucide="rotate-ccw" style="width: 16px; height: 16px; margin-right: 0.35rem;"></i>
+                                            <span>Reload File</span>
+                                        </button>
+                                        <button class="btn btn-secondary" id="view-raw-config-btn" disabled style="padding: 0.5rem 1rem; font-size: 0.85rem; height: auto; min-width: auto; width: auto;">
+                                            <i data-lucide="eye" style="width: 16px; height: 16px; margin-right: 0.35rem;"></i>
+                                            <span>View Raw</span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-body no-padding table-scroll-y">
-                                <table class="table" id="config-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Key Name</th>
-                                            <th>Value</th>
-                                            <th>Type</th>
-                                            <th class="text-right">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="config-table-body">
-                                        <tr>
-                                            <td colspan="4" class="text-center text-muted py-5">
-                                                Please select an AllInitConfig file to display settings.
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                            
+                            <!-- Editable Parameters card -->
+                            <div class="card main-card">
+                                <div class="card-header">
+                                    <div class="card-title-group">
+                                        <i data-lucide="settings-2" class="title-icon"></i>
+                                        <h3>Editable Parameters</h3>
+                                    </div>
+                                    <div class="card-actions">
+                                        <div class="search-box">
+                                            <i data-lucide="search"></i>
+                                            <input type="text" id="config-search" placeholder="Filter parameters...">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-body no-padding table-scroll-y">
+                                    <table class="table" id="config-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Key Name</th>
+                                                <th>Value</th>
+                                                <th>Type</th>
+                                                <th class="text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="config-table-body">
+                                            <tr>
+                                                <td colspan="4" class="text-center text-muted py-5">
+                                                    Please select an AllInitConfig file to display settings.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
 
@@ -150,32 +178,26 @@
                                 </div>
                             </div>
 
-                            <!-- Actions card -->
-                            <div class="card">
-                                <div class="card-header">
+                            <!-- Check Alive card -->
+                            <div class="card" id="check-alive-card">
+                                <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
                                     <div class="card-title-group">
-                                        <i data-lucide="save" class="title-icon"></i>
-                                        <h3>Commit Changes</h3>
+                                        <i data-lucide="activity" class="title-icon"></i>
+                                        <h3>Check Alive</h3>
                                     </div>
+                                    <button class="btn btn-secondary btn-sm" id="check-alive-btn" disabled style="padding: 0.25rem 0.5rem; font-size: 0.75rem; min-width: auto; width: auto; height: auto;">
+                                        <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+                                    </button>
                                 </div>
-                                <div class="card-body text-center">
-                                    <p class="description-text mb-4 text-left">Save your modifications back to the AllInitConfig file. Unsaved changes will be lost.</p>
-                                    <div class="vertical-actions">
-                                        <button class="btn btn-primary w-100" id="save-config-btn" disabled>
-                                            <i data-lucide="check-circle-2"></i>
-                                            <span>Save AllInitConfig</span>
-                                        </button>
-                                        <button class="btn btn-secondary w-100 mt-2" id="reload-config-btn" disabled>
-                                            <i data-lucide="rotate-ccw"></i>
-                                            <span>Reload File</span>
-                                        </button>
-                                        <button class="btn btn-secondary w-100 mt-2" id="view-raw-config-btn" disabled>
-                                            <i data-lucide="eye"></i>
-                                            <span>View Raw Configuration</span>
-                                        </button>
+                                <div class="card-body">
+                                    <p class="description-text mb-3">Ping or check TCP port status of active control agents and components (wireless IPs excluded).</p>
+                                    <div id="check-alive-list" class="toggles-list">
+                                        <span class="text-muted">No configuration loaded.</span>
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- Commit Changes block moved to main column -->
                         </div>
                     </div>
                 </section>
