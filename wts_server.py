@@ -973,14 +973,19 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                             if file.startswith("log_") and file.endswith(".log"):
                                 tc = file[4:-4]
                                 if tc in tc_targets:
-                                    res = "FAIL"
                                     try:
                                         with open(os.path.join(p, file), 'r', encoding='utf-8', errors='ignore') as logf:
-                                            if "PASS" in logf.read():
+                                            content = logf.read()
+                                        
+                                        # Only record result if test case has actually finished executing
+                                        if "FINAL TEST RESULT" in content or "END: TEST CASE" in content or "Execution Time [" in content or "Stopping FTP server" in content:
+                                            if re.search(r'FINAL TEST RESULT\s*--->\s*PASS', content, re.IGNORECASE) or "\nPASS\n" in content:
                                                 res = "PASS"
+                                            else:
+                                                res = "FAIL"
+                                            test_history_map.setdefault(tc, []).append({'result': res, 'folder': f})
                                     except:
-                                        res = "ERROR"
-                                    test_history_map.setdefault(tc, []).append({'result': res, 'folder': f})
+                                        pass
                 
                 # Generate final list
                 results = []
