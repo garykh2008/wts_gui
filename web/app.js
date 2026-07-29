@@ -1128,26 +1128,25 @@ function appendTerminalLine(text, customClass = '') {
     line.className = 'terminal-line';
     
     // Parse formatting / classes based on ANSI color codes or content
+    const PASS_RESULT_RE = /final test result\s*--->\s*pass/i;
+    const FAIL_RESULT_RE = /final test result\s*--->\s*fail/i;
+
     if (customClass) {
         line.classList.add(customClass);
+    } else if (PASS_RESULT_RE.test(text)) {
+        // Definitive PASS result line
+        state.execStats.pass++;
+        document.getElementById('exec-stat-pass').innerText = state.execStats.pass;
+        updateProgressMetrics();
+        line.classList.add('pass-msg');
+    } else if (FAIL_RESULT_RE.test(text)) {
+        // Definitive FAIL result line
+        state.execStats.fail++;
+        document.getElementById('exec-stat-fail').innerText = state.execStats.fail;
+        updateProgressMetrics();
+        line.classList.add('fail-msg');
     } else if (text.includes('---')) {
         line.classList.add('header-msg');
-    } else if (text.toLowerCase().includes('final test result ---> pass') || text.toLowerCase().includes('pass')) {
-        if (text.toLowerCase().includes('final test result ---> pass')) {
-            state.execStats.pass++;
-            document.getElementById('exec-stat-pass').innerText = state.execStats.pass;
-            updateProgressMetrics();
-        }
-        // Color line green if it's the result line
-        if (text.includes('--->')) line.classList.add('pass-msg');
-    } else if (text.toLowerCase().includes('final test result ---> fail') || text.toLowerCase().includes('fail')) {
-        if (text.toLowerCase().includes('final test result ---> fail')) {
-            state.execStats.fail++;
-            document.getElementById('exec-stat-fail').innerText = state.execStats.fail;
-            updateProgressMetrics();
-        }
-        // Color line red if it's the result line
-        if (text.includes('--->')) line.classList.add('fail-msg');
     }
     
     line.innerText = text;
