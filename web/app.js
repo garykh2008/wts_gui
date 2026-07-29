@@ -1112,6 +1112,7 @@ function startConsoleOutputSSE() {
         
         // Scan results automatically to update latest status indicators
         scanAnalyticsData(true); // silent scan
+        syncExecStatsFromLogs();
     });
     
     testRunEventSource.onerror = (err) => {
@@ -1119,6 +1120,35 @@ function startConsoleOutputSSE() {
         // Do not display error since EventSource automatically tries to reconnect,
         // unless the stream ended.
     };
+}
+
+async function syncExecStatsFromLogs() {
+    if (!state.configPath || state.selectedTests.size === 0) return;
+    
+    const role = document.querySelector('#analytics-role-selector .role-btn.active')?.getAttribute('data-role') || 'All';
+    const startDate = document.getElementById('analytics-date-input')?.value || '';
+    const url = `/api/results?role=${role}&startDate=${startDate}&path=${encodeURIComponent(state.configPath)}`;
+    
+    const res = await apiFetch(url);
+    if (!res || !res.results) return;
+    
+    const selectedSet = state.selectedTests;
+    let passCount = 0;
+    let failCount = 0;
+    
+    res.results.forEach(item => {
+        if (selectedSet.has(item.case)) {
+            if (item.status === 'PASS') passCount++;
+            else if (item.status === 'FAIL') failCount++;
+        }
+    });
+    
+    state.execStats.pass = passCount;
+    state.execStats.fail = failCount;
+    
+    document.getElementById('exec-stat-pass').innerText = passCount;
+    document.getElementById('exec-stat-fail').innerText = failCount;
+    updateProgressMetrics();
 }
 
 function appendTerminalLine(text, customClass = '') {
@@ -1135,18 +1165,19 @@ function appendTerminalLine(text, customClass = '') {
         line.classList.add(customClass);
     } else if (PASS_RESULT_RE.test(text)) {
         // Definitive PASS result line
-        state.execStats.pass++;
-        document.getElementById('exec-stat-pass').innerText = state.execStats.pass;
-        updateProgressMetrics();
         line.classList.add('pass-msg');
+        syncExecStatsFromLogs();
     } else if (FAIL_RESULT_RE.test(text)) {
         // Definitive FAIL result line
-        state.execStats.fail++;
-        document.getElementById('exec-stat-fail').innerText = state.execStats.fail;
-        updateProgressMetrics();
         line.classList.add('fail-msg');
+        syncExecStatsFromLogs();
     } else if (text.includes('---')) {
         line.classList.add('header-msg');
+    }
+    
+    // Also trigger log sync when WTS outputs 'Update Finished..' (end of single testcase)
+    if (text.includes('Update Finished..') || text.includes('Stopping FTP server')) {
+        syncExecStatsFromLogs();
     }
     
     line.innerText = text;
@@ -1162,7 +1193,7 @@ function updateProgressMetrics() {
     
     if (total === 0) return;
     
-    const percentage = Math.round((completed / total) * 100);
+    const percentage = Math.min(100, Math.round((completed / total) * 100));
     
     document.getElementById('exec-progress-bar').style.width = `${percentage}%`;
     document.getElementById('exec-progress-text').innerText = `${percentage}%`;
@@ -1170,6 +1201,8 @@ function updateProgressMetrics() {
     if (state.execStats.fail > 0) {
         // Red glow or color shift for failed runs
         document.getElementById('exec-progress-bar').style.backgroundColor = 'var(--status-fail)';
+    } else {
+        document.getElementById('exec-progress-bar').style.backgroundColor = 'var(--accent-color)';
     }
 }
 
