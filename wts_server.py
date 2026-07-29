@@ -32,6 +32,7 @@ ACTIVE_SUBPROCESS = None
 OUTPUT_QUEUE = queue.Queue()
 OUTPUT_HISTORY = []
 IS_RUNNING = False
+CURRENT_RUN_START_TIME = 0.0
 
 # Session Settings File
 SETTINGS_FILE = "wts_gui.settings.json"
@@ -938,6 +939,8 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                             not_support_list = set(json.load(f))
                     except: pass
                 
+                current_run_only = query.get("currentRunOnly", ["false"])[0].lower() == "true"
+                
                 # Filters
                 tc_targets = []
                 for n in case_names:
@@ -957,10 +960,15 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                         key=lambda d: os.path.getmtime(os.path.join(log_dir, d))
                     )
                     for f in dirs:
-                        folder_date = parse_date_from_folder_name(f)
-                        if folder_date and filter_date and folder_date < filter_date:
-                            continue
-                        p = os.path.join(log_dir, f)
+                        folder_path = os.path.join(log_dir, f)
+                        if current_run_only and CURRENT_RUN_START_TIME > 0:
+                            if os.path.getmtime(folder_path) < CURRENT_RUN_START_TIME:
+                                continue
+                        else:
+                            folder_date = parse_date_from_folder_name(f)
+                            if folder_date and filter_date and folder_date < filter_date:
+                                continue
+                        p = folder_path
                         for file in os.listdir(p):
                             if file.startswith("log_") and file.endswith(".log"):
                                 tc = file[4:-4]
@@ -1346,6 +1354,8 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 elif not selected_tests:
                     response_data = {"error": "No test cases selected"}
                 else:
+                    global CURRENT_RUN_START_TIME
+                    CURRENT_RUN_START_TIME = time.time() - 3.0
                     # Resolve WTS paths
                     wts_paths = resolve_wts_paths(cfg_path)
                     wts_path = wts_paths["wts_exe"]

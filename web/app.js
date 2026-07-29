@@ -1154,8 +1154,7 @@ async function syncExecStatsFromLogs() {
     if (!state.configPath || state.selectedTests.size === 0) return;
     
     const role = document.querySelector('#analytics-role-selector .role-btn.active')?.getAttribute('data-role') || 'All';
-    const startDate = document.getElementById('analytics-date-input')?.value || '';
-    const url = `/api/results?role=${role}&startDate=${startDate}&path=${encodeURIComponent(state.configPath)}`;
+    const url = `/api/results?role=${role}&currentRunOnly=true&path=${encodeURIComponent(state.configPath)}`;
     
     const res = await apiFetch(url);
     if (!res || !res.results) return;
