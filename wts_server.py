@@ -30,6 +30,7 @@ LINUX_EDITOR_COMMAND = None
 RUNNER_LOCK = threading.Lock()
 ACTIVE_SUBPROCESS = None
 OUTPUT_QUEUE = queue.Queue()
+OUTPUT_HISTORY = []
 IS_RUNNING = False
 
 # Session Settings File
@@ -316,7 +317,7 @@ def parse_date_from_folder_name(name):
     return None
 
 def run_tests_thread(cmd, use_wsl, cwd=None):
-    global ACTIVE_SUBPROCESS, IS_RUNNING
+    global ACTIVE_SUBPROCESS, IS_RUNNING, OUTPUT_HISTORY
     
     cmd_to_run = cmd
     if os.name == 'nt' and use_wsl:
@@ -333,10 +334,11 @@ def run_tests_thread(cmd, use_wsl, cwd=None):
                 env.pop(key, None)
                 
     try:
-        # Clear out queue
+        # Clear out queue and history
         while not OUTPUT_QUEUE.empty():
             try: OUTPUT_QUEUE.get_nowait()
             except queue.Empty: break
+        OUTPUT_HISTORY.clear()
             
         ACTIVE_SUBPROCESS = subprocess.Popen(
             cmd_to_run, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
@@ -349,12 +351,15 @@ def run_tests_thread(cmd, use_wsl, cwd=None):
         
         for line in iter(ACTIVE_SUBPROCESS.stdout.readline, ''):
             if line:
+                OUTPUT_HISTORY.append(line)
                 OUTPUT_QUEUE.put(line)
                 
         ACTIVE_SUBPROCESS.stdout.close()
         ACTIVE_SUBPROCESS.wait()
     except Exception as e:
-        OUTPUT_QUEUE.put(f"Error running command: {e}\n")
+        err_msg = f"Error running command: {e}\n"
+        OUTPUT_HISTORY.append(err_msg)
+        OUTPUT_QUEUE.put(err_msg)
     finally:
         IS_RUNNING = False
         OUTPUT_QUEUE.put(None) # Sentinel to signify finished
@@ -996,21 +1001,26 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 self._send_cors_headers()
                 self.end_headers()
                 
-                # Stream the queue content
+                sent_index = 0
                 while True:
                     try:
-                        line = OUTPUT_QUEUE.get(timeout=30.0) # wait up to 30s
-                        if line is None: # Sentinel: finished
+                        current_len = len(OUTPUT_HISTORY)
+                        if sent_index < current_len:
+                            while sent_index < current_len:
+                                line = OUTPUT_HISTORY[sent_index]
+                                self.wfile.write(f"data: {json.dumps(line)}\n\n".encode('utf-8'))
+                                sent_index += 1
+                            self.wfile.flush()
+                        elif not IS_RUNNING:
+                            # Test run is finished
                             self.wfile.write(b"event: finished\ndata: \n\n")
                             self.wfile.flush()
                             break
-                        # Send line
-                        self.wfile.write(f"data: {json.dumps(line)}\n\n".encode('utf-8'))
-                        self.wfile.flush()
-                    except queue.Empty:
-                        # Send heartbeat
-                        self.wfile.write(b": heartbeat\n\n")
-                        self.wfile.flush()
+                        else:
+                            # Send heartbeat to keep connection alive
+                            self.wfile.write(b": heartbeat\n\n")
+                            self.wfile.flush()
+                            time.sleep(0.2)
                     except Exception as e:
                         # Client disconnected
                         break

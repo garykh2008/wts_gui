@@ -262,6 +262,19 @@ async function checkBackendStatus() {
         
         // Load TMS Config
         await loadTmsConfig();
+        
+        // If tests are currently running in backend (e.g. after page refresh), reconnect seamlessly
+        if (res.running) {
+            document.getElementById('start-testing-btn').disabled = true;
+            document.getElementById('stop-testing-btn').disabled = false;
+            document.getElementById('exec-checkbox-list').querySelectorAll('input').forEach(i => i.disabled = true);
+            
+            const term = document.getElementById('terminal-output');
+            term.innerHTML = '<div class="terminal-line system-msg">[System] Reconnected to ongoing test execution stream...</div>';
+            
+            startConsoleOutputSSE();
+            syncExecStatsFromLogs();
+        }
     } else {
         document.getElementById('backend-status-text').innerText = 'Connection Offline';
         document.querySelector('.status-dot').className = 'status-dot red';
