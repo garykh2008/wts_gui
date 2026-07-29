@@ -791,7 +791,7 @@ function updateTestExecutionChecklist() {
         container.innerHTML = '<div class="text-muted text-center py-5">No test cases match active filters.</div>';
     }
     
-    updateExecStats();
+    updateExecStats(false);
 }
 
 function getTestCaseLatestStatus(tc) {
@@ -801,9 +801,24 @@ function getTestCaseLatestStatus(tc) {
     return 'NT'; // Default placeholder until scanned
 }
 
-function updateExecStats() {
+function resetExecStats() {
+    state.execStats.pass = 0;
+    state.execStats.fail = 0;
+    document.getElementById('exec-stat-pass').innerText = 0;
+    document.getElementById('exec-stat-fail').innerText = 0;
+    
+    document.getElementById('exec-progress-bar').style.width = '0%';
+    document.getElementById('exec-progress-text').innerText = '0%';
+    document.getElementById('exec-progress-bar').style.backgroundColor = 'var(--accent-color)';
+}
+
+function updateExecStats(resetResults = true) {
     state.execStats.total = state.selectedTests.size;
     document.getElementById('exec-stat-total').innerText = state.execStats.total;
+    
+    if (resetResults) {
+        resetExecStats();
+    }
     
     // Enable run button if any test selected
     document.getElementById('start-testing-btn').disabled = state.selectedTests.size === 0;
