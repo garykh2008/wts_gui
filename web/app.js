@@ -1524,14 +1524,10 @@ async function openLogForResult(caseName, logFolder) {
     const content = document.getElementById('log-view-content');
     const firstMatchId = renderLogWithHighlight(content, text, /final test result/i);
 
-    // Match the logs-tab modal behaviour: wrap preference + reset maximize state.
+    // Match the logs-tab modal behaviour: wrap + remembered maximize state.
     const storedWrap = localStorage.getItem('log_wrap_text') === 'true';
     content.classList.toggle('wrap-text', storedWrap);
-
-    const logModal = document.getElementById('log-view-modal');
-    logModal.classList.remove('maximized');
-    const maxBtn = document.getElementById('log-view-maximize-btn');
-    if (maxBtn) maxBtn.innerHTML = '<i data-lucide="maximize" class="icon-xs"></i>';
+    applyLogMaximizeState();
 
     document.getElementById('log-view-copy-btn').onclick = () => {
         navigator.clipboard.writeText(text).then(() => showNotification('Logs copied to clipboard.', 'green'));
@@ -1548,6 +1544,20 @@ async function openLogForResult(caseName, logFolder) {
             const el = document.getElementById(firstMatchId);
             if (el) el.scrollIntoView({ block: 'center' });
         });
+    }
+}
+
+// Apply the remembered maximize state to the log preview modal. Defaults to
+// maximized so logs open full-screen unless the user has chosen the small window.
+function applyLogMaximizeState() {
+    const logModal = document.getElementById('log-view-modal');
+    const maxBtn = document.getElementById('log-view-maximize-btn');
+    const isMax = localStorage.getItem('log_maximized') !== 'false';
+    logModal.classList.toggle('maximized', isMax);
+    if (maxBtn) {
+        maxBtn.innerHTML = isMax
+            ? '<i data-lucide="minimize" class="icon-xs"></i>'
+            : '<i data-lucide="maximize" class="icon-xs"></i>';
     }
 }
 
@@ -1878,14 +1888,9 @@ async function openLogFileDetails(fileName) {
         document.getElementById('log-view-title').innerText = `Log Preview: ${state.activeLogFolder}/${fileName}`;
         document.getElementById('log-view-content').innerText = text;
         
-        // Reset maximized state when opening
-        const logModal = document.getElementById('log-view-modal');
-        logModal.classList.remove('maximized');
-        const maxBtn = document.getElementById('log-view-maximize-btn');
-        if (maxBtn) {
-            maxBtn.innerHTML = '<i data-lucide="maximize" class="icon-xs"></i>';
-        }
-        
+        // Apply the remembered maximize state when opening
+        applyLogMaximizeState();
+
         // Apply wrap text state
         const storedWrap = localStorage.getItem('log_wrap_text') === 'true';
         if (storedWrap) {
@@ -2495,9 +2500,11 @@ const logModal = document.getElementById('log-view-modal');
 if (maxBtn && logModal) {
     maxBtn.addEventListener('click', () => {
         const isMax = logModal.classList.toggle('maximized');
-        maxBtn.innerHTML = isMax 
-            ? '<i data-lucide="minimize" class="icon-xs"></i>' 
+        maxBtn.innerHTML = isMax
+            ? '<i data-lucide="minimize" class="icon-xs"></i>'
             : '<i data-lucide="maximize" class="icon-xs"></i>';
+        // Remember the choice so logs open the same way next time.
+        localStorage.setItem('log_maximized', isMax);
         lucide.createIcons();
     });
 }
