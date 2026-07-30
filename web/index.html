@@ -248,7 +248,7 @@
                                 </div>
                             </div>
                             <div class="card-filters-row">
-                                <div class="role-selector">
+                                <div class="role-selector" id="exec-role-selector">
                                     <button class="role-btn active" data-role="All">All</button>
                                     <button class="role-btn" data-role="AP">AP</button>
                                     <button class="role-btn" data-role="STA">STA</button>
@@ -705,6 +705,7 @@
                     <tr>
                         <th style="width: 150px; text-align: center;">Result</th>
                         <th>Folder</th>
+                        <th style="width: 60px;"></th>
                     </tr>
                 </thead>
                 <tbody id="history-table-body">
@@ -736,6 +737,13 @@
         <div class="modal-header">
             <h3 id="log-view-title">Log File Preview</h3>
             <div class="header-actions ml-auto mr-4" style="display: flex; align-items: center; gap: 0.75rem;">
+                <div id="log-view-capture-wrap" style="position: relative; display: none;">
+                    <button class="btn btn-secondary btn-xs" id="log-view-capture-btn" title="Open a packet capture from this log folder">
+                        <i data-lucide="waves" class="icon-xs"></i>
+                        <span id="log-view-capture-label">Open Capture</span>
+                    </button>
+                    <div id="log-view-capture-menu" class="capture-menu" style="display: none;"></div>
+                </div>
                 <label class="flex-row gap-1" style="font-size: 0.8rem; cursor: pointer; color: var(--text-secondary); user-select: none;">
                     <input type="checkbox" id="log-view-wrap-btn" style="cursor: pointer; margin-right: 0.25rem;">
                     <span>Line Wrap</span>

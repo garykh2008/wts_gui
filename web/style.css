@@ -1343,6 +1343,56 @@ a {
     word-break: break-all !important;
 }
 
+/* Highlighted result line when jumping from Analytics to a test's log */
+.log-hl {
+    background-color: rgba(245, 158, 11, 0.28);
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.5);
+    font-weight: 600;
+}
+
+/* Packet-capture picker dropdown in the log preview modal */
+.capture-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 240px;
+    max-width: 420px;
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px var(--shadow-color);
+    z-index: 1200;
+    padding: 0.35rem;
+}
+
+.capture-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    text-align: left;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.capture-menu-item:hover {
+    background: var(--bg-hover, rgba(148, 163, 184, 0.12));
+}
+
+.capture-menu-item .cap-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .modal.maximized {
     width: 96vw !important;
     height: 94vh !important;
