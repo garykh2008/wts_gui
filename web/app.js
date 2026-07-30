@@ -1468,7 +1468,7 @@ function openHistoryModal(testCaseName, history) {
     tbody.innerHTML = '';
     
     if (!history || history.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="2" class="text-center text-muted py-4">No historical runs recorded.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4">No historical runs recorded.</td></tr>`;
     } else {
         history.forEach(run => {
             const tr = document.createElement('tr');
@@ -1478,12 +1478,25 @@ function openHistoryModal(testCaseName, history) {
                     <span class="status-pill ${statusClass}">${esc(run.result)}</span>
                 </td>
                 <td class="font-mono text-muted" style="font-size: 0.85rem;">${esc(run.folder)}</td>
+                <td class="text-right">
+                    ${run.folder ? `<button class="btn btn-secondary btn-xs icon-only history-open-log-btn" title="Open this run's log">
+                        <i data-lucide="file-text"></i>
+                    </button>` : ''}
+                </td>
             `;
             tbody.appendChild(tr);
+
+            // Jump to this specific run's log (same folder captures included).
+            if (run.folder) {
+                tr.querySelector('.history-open-log-btn').addEventListener('click', () => {
+                    openLogForResult(testCaseName, run.folder);
+                });
+            }
         });
     }
-    
+
     openModal('history-modal');
+    lucide.createIcons();
 }
 
 // Render log text into a container, escaping it and highlighting lines that
