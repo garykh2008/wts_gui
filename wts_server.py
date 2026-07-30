@@ -2,9 +2,8 @@ import sys
 import os
 import re
 import json
-import html
+import logging
 import zipfile
-import csv
 import shutil
 import threading
 import subprocess
@@ -12,9 +11,10 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import queue
 import socket
 from concurrent.futures import ThreadPoolExecutor
+
+logger = logging.getLogger("wts")
 
 # Global variables for application state
 DATA_DIR = ""
@@ -29,10 +29,19 @@ LINUX_EDITOR_COMMAND = None
 # Current active test runner state
 RUNNER_LOCK = threading.Lock()
 ACTIVE_SUBPROCESS = None
-OUTPUT_QUEUE = queue.Queue()
 OUTPUT_HISTORY = []
+# Absolute index of OUTPUT_HISTORY[0] once older lines get trimmed (see #7).
+# SSE consumers track an absolute line number and subtract this base.
+OUTPUT_HISTORY_BASE = 0
+# Cap on retained output lines so long runs cannot exhaust memory. When the
+# buffer exceeds MAX, it is trimmed back down to KEEP and the base advances.
+OUTPUT_HISTORY_MAX = 200000
+OUTPUT_HISTORY_KEEP = 150000
 IS_RUNNING = False
-CURRENT_RUN_START_TIME = 0.0
+# Snapshot of log-folder names present when the current run started, used to
+# scope "current run only" analytics to genuinely new folders (replaces the
+# fragile time.time()-3.0 heuristic).
+CURRENT_RUN_BASELINE_FOLDERS = set()
 
 # Session Settings File
 SETTINGS_FILE = "wts_gui.settings.json"
@@ -74,27 +83,27 @@ def init_paths():
 
     # Load session settings
     settings_path = os.path.join(DATA_DIR, SETTINGS_FILE)
-    print(f"[DEBUG] Loading session settings from: {settings_path}")
+    logger.debug(f"Loading session settings from: {settings_path}")
     if os.path.exists(settings_path):
         try:
             with open(settings_path, 'r', encoding='utf-8') as f:
                 SESSION_SETTINGS = json.load(f)
-            print(f"[DEBUG] Loaded session settings: {SESSION_SETTINGS}")
+            logger.debug(f"Loaded session settings: {SESSION_SETTINGS}")
         except Exception as e:
-            print(f"[ERROR] Failed to load session settings: {e}")
+            logger.error(f"Failed to load session settings: {e}")
     else:
-        print(f"[DEBUG] Session settings file does not exist.")
+        logger.debug(f"Session settings file does not exist.")
 
 def save_session():
     try:
         settings_path = os.path.join(DATA_DIR, SETTINGS_FILE)
-        print(f"[DEBUG] Saving session settings to: {settings_path}")
-        print(f"[DEBUG] Session settings content: {SESSION_SETTINGS}")
+        logger.debug(f"Saving session settings to: {settings_path}")
+        logger.debug(f"Session settings content: {SESSION_SETTINGS}")
         with open(settings_path, 'w', encoding='utf-8') as f:
             json.dump(SESSION_SETTINGS, f, indent=4)
-        print(f"[DEBUG] Session settings saved successfully.")
+        logger.debug(f"Session settings saved successfully.")
     except Exception as e:
-        print(f"[ERROR] Failed to save session settings: {e}")
+        logger.error(f"Failed to save session settings: {e}")
 
 # --- Configuration File Parsers ---
 
@@ -139,6 +148,25 @@ def load_config_data(p):
             
     return config_data, device_lines
 
+def parse_tms_conf(path):
+    """Parse a TmsClient.conf into a list of line records.
+
+    Each record is {index, original, key, value, type}, where 'type' is
+    'kv_pair' for an uncommented KEY=VALUE line and 'comment' otherwise.
+    Shared by the tms-config GET/save/toggle endpoints.
+    """
+    records = []
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            for idx, line in enumerate(f):
+                s = line.strip()
+                k, v, t = s, "", "comment"
+                if s and not s.startswith('#') and '=' in s:
+                    parts = s.split('=', 1)
+                    k, v, t = parts[0].strip(), parts[1].strip(), "kv_pair"
+                records.append({'index': idx, 'original': line, 'key': k, 'value': v, 'type': t})
+    return records
+
 def parse_xml_data(p):
     try:
         with open(p, 'r', encoding='utf-8') as f:
@@ -165,7 +193,7 @@ def parse_xml_data(p):
                 recurse(el)
             return xml_test_case_names, all_testbeds, details
     except Exception as e:
-        print(f"Error parsing XML: {e}")
+        logger.error(f"Error parsing XML: {e}")
         return [], [], {}
 
 def locate_wts_executable(config_path):
@@ -273,6 +301,21 @@ def get_active_wts_paths():
     cfg_path = SESSION_SETTINGS.get("config_path", "")
     return resolve_wts_paths(cfg_path)
 
+def safe_path_within(base_dir, *parts):
+    """Join *parts under base_dir and confirm the result stays inside base_dir.
+
+    Returns the absolute path, or None if the join escapes base_dir (e.g. via
+    '..' or an absolute path). Used to guard the log/download endpoints against
+    path traversal and arbitrary-file access.
+    """
+    if not base_dir:
+        return None
+    base_abs = os.path.abspath(base_dir)
+    candidate = os.path.abspath(os.path.join(base_abs, *parts))
+    if candidate == base_abs or candidate.startswith(base_abs + os.sep):
+        return candidate
+    return None
+
 # --- Subprocess execution background thread ---
 
 def to_wsl_path(win_path):
@@ -292,39 +335,49 @@ def parse_date_from_folder_name(name):
     if m1:
         try:
             return datetime.strptime(m1.group(1), "%b-%d-%Y").date()
-        except: pass
+        except Exception: pass
         
     # Try format 2: YYYY-MM-DD (e.g. 2026-06-26)
     m2 = re.search(r'(\d{4}-\d{2}-\d{2})', name)
     if m2:
         try:
             return datetime.strptime(m2.group(1), "%Y-%m-%d").date()
-        except: pass
+        except Exception: pass
         
     # Try format 3: YYYY_MM_DD (e.g. 2026_06_26)
     m3 = re.search(r'(\d{4}_\d{2}_\d{2})', name)
     if m3:
         try:
             return datetime.strptime(m3.group(1), "%Y_%m_%d").date()
-        except: pass
+        except Exception: pass
         
     # Try format 4: YYYYMMDD (e.g. 20260626)
     m4 = re.search(r'(\d{8})', name)
     if m4:
         try:
             return datetime.strptime(m4.group(1), "%Y%m%d").date()
-        except: pass
+        except Exception: pass
         
     return None
 
+def _append_output(line):
+    """Append one line of runner output, trimming the buffer if it grows past
+    OUTPUT_HISTORY_MAX so a long run cannot exhaust memory."""
+    global OUTPUT_HISTORY_BASE
+    OUTPUT_HISTORY.append(line)
+    if len(OUTPUT_HISTORY) > OUTPUT_HISTORY_MAX:
+        drop = len(OUTPUT_HISTORY) - OUTPUT_HISTORY_KEEP
+        del OUTPUT_HISTORY[:drop]
+        OUTPUT_HISTORY_BASE += drop
+
 def run_tests_thread(cmd, use_wsl, cwd=None):
-    global ACTIVE_SUBPROCESS, IS_RUNNING, OUTPUT_HISTORY
-    
+    global ACTIVE_SUBPROCESS, IS_RUNNING
+
     cmd_to_run = cmd
     if os.name == 'nt' and use_wsl:
         wsl_exe_path = to_wsl_path(cmd[0])
         cmd_to_run = ["wsl.exe", wsl_exe_path] + cmd[1:]
-        
+
     env = dict(os.environ)
     if hasattr(sys, '_MEIPASS'):
         for key in ['LD_LIBRARY_PATH', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH']:
@@ -333,37 +386,28 @@ def run_tests_thread(cmd, use_wsl, cwd=None):
                 env[key] = env[orig_key]
             else:
                 env.pop(key, None)
-                
+
     try:
-        # Clear out queue and history
-        while not OUTPUT_QUEUE.empty():
-            try: OUTPUT_QUEUE.get_nowait()
-            except queue.Empty: break
-        OUTPUT_HISTORY.clear()
-            
         ACTIVE_SUBPROCESS = subprocess.Popen(
-            cmd_to_run, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-            text=True, bufsize=1, 
+            cmd_to_run, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
             env=env,
             cwd=cwd,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
-        IS_RUNNING = True
-        
+
         for line in iter(ACTIVE_SUBPROCESS.stdout.readline, ''):
             if line:
-                OUTPUT_HISTORY.append(line)
-                OUTPUT_QUEUE.put(line)
-                
+                _append_output(line)
+
         ACTIVE_SUBPROCESS.stdout.close()
         ACTIVE_SUBPROCESS.wait()
     except Exception as e:
-        err_msg = f"Error running command: {e}\n"
-        OUTPUT_HISTORY.append(err_msg)
-        OUTPUT_QUEUE.put(err_msg)
+        _append_output(f"Error running command: {e}\n")
     finally:
-        IS_RUNNING = False
-        OUTPUT_QUEUE.put(None) # Sentinel to signify finished
+        with RUNNER_LOCK:
+            IS_RUNNING = False
+            ACTIVE_SUBPROCESS = None
 
 def find_paired_wireless_ip_index(config_data, agent_idx):
     if agent_idx < 0 or agent_idx >= len(config_data):
@@ -392,7 +436,7 @@ def find_paired_wireless_ip_index(config_data, agent_idx):
             if d.get("type") in ("define_kv_pair", "kv_pair"):
                 k = d.get("key", "").strip().lower()
                 if k in target_keys:
-                    print(f"[DEBUG] Proximity matched paired wireless IP '{k}' at index {next_idx} for device {dev}")
+                    logger.debug(f"Proximity matched paired wireless IP '{k}' at index {next_idx} for device {dev}")
                     return next_idx
                     
     # 2. Fallback Search (entire file match using IP address if available)
@@ -402,7 +446,7 @@ def find_paired_wireless_ip_index(config_data, agent_idx):
                 k = d.get("key", "").strip().lower()
                 v = d.get("value", "").strip()
                 if k in target_keys and v == ip:
-                    print(f"[DEBUG] IP matched paired wireless IP '{k}' at index {idx} for device {dev}")
+                    logger.debug(f"IP matched paired wireless IP '{k}' at index {idx} for device {dev}")
                     return idx
                     
     return None
@@ -445,13 +489,14 @@ def ping_ip(ip, timeout=1.0):
 class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
     
     def log_message(self, format, *args):
-        print(f"[HTTP] {format%args}")
+        logger.debug(f"[HTTP] {format%args}")
         sys.stdout.flush()
         
     def _send_cors_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        # NOTE: The web UI is served from this same origin, so no
+        # Access-Control-Allow-Origin header is emitted. Omitting it prevents
+        # other websites the user is browsing from reading this local API
+        # cross-origin (which would otherwise expose file read / delete / run).
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         self.send_header('Pragma', 'no-cache')
         self.send_header('Expires', '0')
@@ -478,19 +523,21 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
     def handle_zip_download(self, path):
         filename = path.replace("/web-download/", "")
         filename = os.path.basename(filename)
-        file_path = os.path.abspath(os.path.join(DATA_DIR, filename))
-        
-        if os.path.exists(file_path) and os.path.isfile(file_path):
+        file_path = safe_path_within(DATA_DIR, filename)
+
+        if file_path and os.path.exists(file_path) and os.path.isfile(file_path):
             self.send_response(200)
             self.send_header('Content-Type', 'application/octet-stream')
             self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+            self.send_header('Content-Length', str(os.path.getsize(file_path)))
             self._send_cors_headers()
             self.end_headers()
             try:
+                # Stream in chunks so large archives don't get read fully into memory.
                 with open(file_path, 'rb') as f:
-                    self.wfile.write(f.read())
+                    shutil.copyfileobj(f, self.wfile)
             except Exception as e:
-                print(f"[ERROR] Failed to write download: {e}")
+                logger.error(f"Failed to write download: {e}")
         else:
             self.send_error(404, "File Not Found")
 
@@ -581,7 +628,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                         with open(rp, "r", encoding="utf-8") as f:
                             content = f.read()
                             break
-                    except: pass
+                    except Exception: pass
                 
                 self.end_headers()
                 self.wfile.write(content.encode('utf-8'))
@@ -644,9 +691,9 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                             
             elif path == "/api/config":
                 cfg_path = query.get("path", [SESSION_SETTINGS.get("config_path", "")])[0]
-                print(f"[DEBUG] /api/config path: {cfg_path}")
+                logger.debug(f"/api/config path: {cfg_path}")
                 if not cfg_path or not os.path.exists(cfg_path):
-                    print(f"[ERROR] /api/config: File not found at {cfg_path}")
+                    logger.error(f"/api/config: File not found at {cfg_path}")
                     response_data = {"error": "Config file not found", "path": cfg_path}
                 else:
                     # Cache last selected config path
@@ -691,9 +738,9 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                     
             elif path == "/api/config/check-alive":
                 cfg_path = query.get("path", [SESSION_SETTINGS.get("config_path", "")])[0]
-                print(f"[DEBUG] /api/config/check-alive path: {cfg_path}")
+                logger.debug(f"/api/config/check-alive path: {cfg_path}")
                 if not cfg_path or not os.path.exists(cfg_path):
-                    print(f"[ERROR] /api/config/check-alive: File not found at {cfg_path}")
+                    logger.error(f"/api/config/check-alive: File not found at {cfg_path}")
                     response_data = {"error": "Config file not found", "path": cfg_path}
                 else:
                     config_data, device_lines = load_config_data(cfg_path)
@@ -767,10 +814,10 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                     
             elif path == "/api/xml-data":
                 cfg_path = query.get("path", [SESSION_SETTINGS.get("config_path", "")])[0]
-                print(f"[DEBUG] /api/xml-data config path: {cfg_path}")
+                logger.debug(f"/api/xml-data config path: {cfg_path}")
                 if cfg_path and os.path.exists(cfg_path):
                     xml_path = os.path.join(os.path.dirname(cfg_path), 'MasterTestInfo.xml')
-                    print(f"[DEBUG] /api/xml-data searching MasterTestInfo.xml at: {xml_path}")
+                    logger.debug(f"/api/xml-data searching MasterTestInfo.xml at: {xml_path}")
                     if os.path.exists(xml_path):
                         case_names, testbeds, details = parse_xml_data(xml_path)
                         response_data = {
@@ -779,46 +826,43 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                             "details": details
                         }
                     else:
-                        print(f"[ERROR] /api/xml-data: MasterTestInfo.xml not found at {xml_path}")
+                        logger.error(f"/api/xml-data: MasterTestInfo.xml not found at {xml_path}")
                         response_data = {"error": "MasterTestInfo.xml not found near configuration"}
                 else:
-                    print(f"[ERROR] /api/xml-data: Config path does not exist: {cfg_path}")
+                    logger.error(f"/api/xml-data: Config path does not exist: {cfg_path}")
                     response_data = {"error": "Select AllInitConfig first to load XML test specifications"}
                     
             elif path == "/api/exclude":
                 ex_path = get_active_wts_paths()["not_support"]
-                print(f"[DEBUG] /api/exclude path: {ex_path}")
+                logger.debug(f"/api/exclude path: {ex_path}")
                 exclusions = []
                 if os.path.exists(ex_path):
                     try:
                         with open(ex_path, 'r', encoding='utf-8') as f:
                             exclusions = json.load(f)
-                    except: pass
+                    except Exception: pass
                 else:
-                    print(f"[DEBUG] /api/exclude file not found at: {ex_path} (will use empty list)")
+                    logger.debug(f"/api/exclude file not found at: {ex_path} (will use empty list)")
                 response_data = {
                     "path": ex_path,
                     "exclusions": exclusions
                 }
                 
             elif path == "/api/tms-config":
-                tms_tree = []
-                tms_upload_enabled = False
                 tms_conf_path = get_active_wts_paths()["tms_conf"]
-                print(f"[DEBUG] /api/tms-config path: {tms_conf_path}")
-                if os.path.exists(tms_conf_path):
-                    with open(tms_conf_path, 'r', encoding='utf-8') as f:
-                        for idx, line in enumerate(f):
-                            s = line.strip()
-                            k, v, t = s, "", "comment"
-                            if s and not s.startswith('#') and '=' in s:
-                                parts = s.split('=', 1)
-                                k, v, t = parts[0].strip(), parts[1].strip(), "kv_pair"
-                                if k == 'TMS_feature':
-                                    tms_upload_enabled = (v.lower() == 'enabled')
-                            tms_tree.append({"index": idx, "key": k, "value": v, "type": t, "original": line})
-                else:
-                    print(f"[ERROR] /api/tms-config: File not found at {tms_conf_path}")
+                logger.debug(f"/api/tms-config path: {tms_conf_path}")
+                if not os.path.exists(tms_conf_path):
+                    logger.error(f"/api/tms-config: File not found at {tms_conf_path}")
+                tms_records = parse_tms_conf(tms_conf_path)
+                tms_upload_enabled = any(
+                    r["key"] == "TMS_feature" and r["value"].lower() == "enabled"
+                    for r in tms_records if r["type"] == "kv_pair"
+                )
+                tms_tree = [
+                    {"index": r["index"], "key": r["key"], "value": r["value"],
+                     "type": r["type"], "original": r["original"]}
+                    for r in tms_records
+                ]
                 response_data = {
                     "path": tms_conf_path,
                     "parameters": tms_tree,
@@ -832,7 +876,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                     save_session()
                 folders = []
                 log_dir = get_active_wts_paths()["log_dir"]
-                print(f"[DEBUG] /api/logs directory: {log_dir}")
+                logger.debug(f"/api/logs directory: {log_dir}")
                 if os.path.exists(log_dir):
                     dirs = sorted(
                         [d for d in os.listdir(log_dir) if os.path.isdir(os.path.join(log_dir, d))],
@@ -843,7 +887,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                     filter_date = None
                     if start_date_str:
                         try: filter_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-                        except: pass
+                        except Exception: pass
                         
                     for d in dirs:
                         folder_date = parse_date_from_folder_name(d)
@@ -851,7 +895,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                             continue
                         folders.append(d)
                 else:
-                    print(f"[ERROR] /api/logs: Directory not found at {log_dir}")
+                    logger.error(f"/api/logs: Directory not found at {log_dir}")
                 response_data = {"folders": folders}
                 
             elif path == "/api/logs/files":
@@ -859,9 +903,9 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 files = []
                 if folder:
                     log_dir = get_active_wts_paths()["log_dir"]
-                    p = os.path.join(log_dir, folder)
-                    print(f"[DEBUG] /api/logs/files path: {p}")
-                    if os.path.exists(p) and os.path.isdir(p):
+                    p = safe_path_within(log_dir, folder)
+                    logger.debug(f"/api/logs/files path: {p}")
+                    if p and os.path.exists(p) and os.path.isdir(p):
                         for f in sorted(os.listdir(p)):
                             if f.lower().endswith(".log") or "pcap" in f.lower():
                                 fp = os.path.join(p, f)
@@ -870,7 +914,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                                     "size": f"{os.path.getsize(fp)/1024:.1f} KB"
                                 })
                     else:
-                        print(f"[ERROR] /api/logs/files: Directory not found at {p}")
+                        logger.error(f"/api/logs/files: Directory not found at {p}")
                 response_data = {"files": files}
                 
             elif path == "/api/logs/view":
@@ -879,12 +923,14 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 if folder and file_name:
                     log_dir = get_active_wts_paths()["log_dir"]
                     if folder == ".":
-                        p = file_name if os.path.isabs(file_name) else os.path.join(DATA_DIR, file_name)
+                        # Only files sitting directly in DATA_DIR, by basename.
+                        # Reject absolute paths / traversal to prevent arbitrary reads.
+                        p = safe_path_within(DATA_DIR, os.path.basename(file_name))
                     else:
-                        p = os.path.join(log_dir, folder, file_name)
-                    
-                    print(f"[DEBUG] /api/logs/view path: {p}")
-                    if os.path.exists(p):
+                        p = safe_path_within(log_dir, folder, file_name)
+
+                    logger.debug(f"/api/logs/view path: {p}")
+                    if p and os.path.exists(p):
                         lower_name = file_name.lower()
                         if lower_name.endswith(".log") or lower_name.endswith(".md") or lower_name.endswith(".conf") or lower_name.endswith(".txt"):
                             # Read text file
@@ -897,13 +943,15 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                             self.send_response(200)
                             self.send_header('Content-Type', 'application/octet-stream')
                             self.send_header('Content-Disposition', f'attachment; filename="{os.path.basename(file_name)}"')
+                            self.send_header('Content-Length', str(os.path.getsize(p)))
                             self._send_cors_headers()
                             self.end_headers()
+                            # Stream in chunks; pcap captures can be large.
                             with open(p, 'rb') as f:
-                                self.wfile.write(f.read())
+                                shutil.copyfileobj(f, self.wfile)
                             return
                     else:
-                        print(f"[ERROR] /api/logs/view: File not found at {p}")
+                        logger.error(f"/api/logs/view: File not found at {p}")
                 response_data = {"error": "File not found"}
                 
             elif path == "/api/results":
@@ -919,16 +967,16 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 wts_paths = resolve_wts_paths(cfg_path)
                 log_dir = wts_paths["log_dir"]
                 xml_path = os.path.join(os.path.dirname(cfg_path), 'MasterTestInfo.xml') if cfg_path else ""
-                print(f"[DEBUG] /api/results scanning path: {log_dir}, xml: {xml_path}")
+                logger.debug(f"/api/results scanning path: {log_dir}, xml: {xml_path}")
                 
                 case_names = []
                 if xml_path and os.path.exists(xml_path):
                     try:
                         root = ET.parse(xml_path).getroot()
                         case_names = sorted([el.tag for el in root if el.tag])
-                    except: pass
+                    except Exception: pass
                 else:
-                    print(f"[ERROR] /api/results: XML file not found at {xml_path}")
+                    logger.error(f"/api/results: XML file not found at {xml_path}")
                 
                 # Excluded list
                 ex_path = wts_paths["not_support"]
@@ -937,7 +985,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                     try:
                         with open(ex_path, 'r', encoding='utf-8') as f:
                             not_support_list = set(json.load(f))
-                    except: pass
+                    except Exception: pass
                 
                 current_run_only = query.get("currentRunOnly", ["false"])[0].lower() == "true"
                 
@@ -951,7 +999,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 filter_date = None
                 if start_date_str:
                     try: filter_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-                    except: pass
+                    except Exception: pass
                     
                 test_history_map = {}
                 if os.path.exists(log_dir):
@@ -961,8 +1009,9 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                     )
                     for f in dirs:
                         folder_path = os.path.join(log_dir, f)
-                        if current_run_only and CURRENT_RUN_START_TIME > 0:
-                            if os.path.getmtime(folder_path) < CURRENT_RUN_START_TIME:
+                        if current_run_only:
+                            # Only folders that did not exist when the run started.
+                            if f in CURRENT_RUN_BASELINE_FOLDERS:
                                 continue
                         else:
                             folder_date = parse_date_from_folder_name(f)
@@ -984,7 +1033,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                                             else:
                                                 res = "FAIL"
                                             test_history_map.setdefault(tc, []).append({'result': res, 'folder': f})
-                                    except:
+                                    except Exception:
                                         pass
                 
                 # Generate final list
@@ -1014,15 +1063,27 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 self._send_cors_headers()
                 self.end_headers()
                 
+                # sent_index is an ABSOLUTE line number. OUTPUT_HISTORY may be
+                # trimmed from the front (OUTPUT_HISTORY_BASE tracks how many
+                # lines were dropped), so we translate to a local index each
+                # iteration and skip ahead if the client fell behind the window.
                 sent_index = 0
                 while True:
                     try:
-                        current_len = len(OUTPUT_HISTORY)
-                        if sent_index < current_len:
-                            while sent_index < current_len:
-                                line = OUTPUT_HISTORY[sent_index]
-                                self.wfile.write(f"data: {json.dumps(line)}\n\n".encode('utf-8'))
-                                sent_index += 1
+                        wrote_any = False
+                        while True:
+                            local_idx = sent_index - OUTPUT_HISTORY_BASE
+                            if local_idx < 0:
+                                # Client is behind the trimmed window; jump forward.
+                                sent_index = OUTPUT_HISTORY_BASE
+                                continue
+                            if local_idx >= len(OUTPUT_HISTORY):
+                                break
+                            line = OUTPUT_HISTORY[local_idx]
+                            self.wfile.write(f"data: {json.dumps(line)}\n\n".encode('utf-8'))
+                            sent_index += 1
+                            wrote_any = True
+                        if wrote_any:
                             self.wfile.flush()
                         elif not IS_RUNNING:
                             # Test run is finished
@@ -1034,7 +1095,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                             self.wfile.write(b": heartbeat\n\n")
                             self.wfile.flush()
                             time.sleep(0.2)
-                    except Exception as e:
+                    except Exception:
                         # Client disconnected
                         break
                 return
@@ -1062,7 +1123,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
             body = {}
             if post_data:
                 try: body = json.loads(post_data.decode('utf-8'))
-                except: pass
+                except Exception: pass
                 
             if path == "/api/config/save":
                 cfg_path = body.get("path", "")
@@ -1169,29 +1230,20 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 tms_conf_path = get_active_wts_paths()["tms_conf"]
                 try:
                     # Load current TMS config representation
-                    tms_data = []
-                    if os.path.exists(tms_conf_path):
-                        with open(tms_conf_path, 'r', encoding='utf-8') as f:
-                            for line in f:
-                                s = line.strip()
-                                k, v, t = s, "", "comment"
-                                if s and not s.startswith('#') and '=' in s:
-                                    parts = s.split('=', 1)
-                                    k, v, t = parts[0].strip(), parts[1].strip(), "kv_pair"
-                                tms_data.append({'original': line, 'key': k, 'value': v, 'type': t})
-                    
+                    tms_data = parse_tms_conf(tms_conf_path)
+
                     # Update values
                     for param in parameters:
                         idx = param.get("index")
                         val = param.get("value")
                         if idx is not None and 0 <= idx < len(tms_data):
                             tms_data[idx]['value'] = val
-                            
+
                     # Save back
                     with open(tms_conf_path, 'w', encoding='utf-8', newline='\n') as f:
                         for d in tms_data:
                             f.write(f"{d['key']}={d['value']}\n" if d['type'] == 'kv_pair' else d['original'])
-                            
+
                     response_data = {"success": True}
                 except Exception as e:
                     response_data = {"error": str(e)}
@@ -1201,17 +1253,8 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 en_str = "Enabled" if enabled else "Disabled"
                 tms_conf_path = get_active_wts_paths()["tms_conf"]
                 try:
-                    tms_data = []
-                    if os.path.exists(tms_conf_path):
-                        with open(tms_conf_path, 'r', encoding='utf-8') as f:
-                            for line in f:
-                                s = line.strip()
-                                k, v, t = s, "", "comment"
-                                if s and not s.startswith('#') and '=' in s:
-                                    parts = s.split('=', 1)
-                                    k, v, t = parts[0].strip(), parts[1].strip(), "kv_pair"
-                                tms_data.append({'original': line, 'key': k, 'value': v, 'type': t})
-                                
+                    tms_data = parse_tms_conf(tms_conf_path)
+
                     for i, d in enumerate(tms_data):
                         if d['key'] in ['TMS_feature', 'FTP_feature']:
                             tms_data[i]['value'] = en_str
@@ -1229,8 +1272,8 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 file_name = body.get("file", "")
                 if folder and file_name:
                     log_dir = get_active_wts_paths()["log_dir"]
-                    p = os.path.join(log_dir, folder, file_name)
-                    if os.path.exists(p) and os.path.isfile(p):
+                    p = safe_path_within(log_dir, folder, file_name)
+                    if p and os.path.exists(p) and os.path.isfile(p):
                         try:
                             os.remove(p)
                             response_data = {"success": True}
@@ -1246,12 +1289,14 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 failed = []
                 log_dir = get_active_wts_paths()["log_dir"]
                 for folder in folders:
-                    p = os.path.join(log_dir, folder)
-                    if os.path.exists(p) and os.path.isdir(p):
+                    p = safe_path_within(log_dir, folder)
+                    if p and os.path.exists(p) and os.path.isdir(p):
                         try:
                             shutil.rmtree(p)
                         except Exception as e:
                             failed.append(f"{folder}: {e}")
+                    else:
+                        failed.append(f"{folder}: invalid path")
                 if failed:
                     response_data = {"error": "Failed to delete some folders", "details": failed}
                 else:
@@ -1260,17 +1305,22 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/logs/zip":
                 folders = body.get("folders", [])
                 output_name = body.get("outputName", "logs_export.zip")
+                # Reduce to a bare filename so the archive can only be written
+                # inside DATA_DIR (prevents '..'/absolute-path arbitrary writes).
+                output_name = os.path.basename(output_name) or "logs_export.zip"
                 if not output_name.lower().endswith(".zip"):
                     output_name += ".zip"
-                    
-                suggested_path = os.path.join(DATA_DIR, output_name)
+
+                suggested_path = safe_path_within(DATA_DIR, output_name)
                 
                 if folders:
                     log_dir = get_active_wts_paths()["log_dir"]
                     try:
                         with zipfile.ZipFile(suggested_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                             for folder in folders:
-                                folder_path = os.path.join(log_dir, folder)
+                                folder_path = safe_path_within(log_dir, folder)
+                                if not folder_path or not os.path.isdir(folder_path):
+                                    continue
                                 for root, dirs, files in os.walk(folder_path):
                                     for file in files:
                                         file_path = os.path.join(root, file)
@@ -1291,8 +1341,8 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 file_name = body.get("file", "")
                 if folder and file_name:
                     log_dir = get_active_wts_paths()["log_dir"]
-                    p = os.path.abspath(os.path.join(log_dir, folder, file_name))
-                    if os.path.exists(p):
+                    p = safe_path_within(log_dir, folder, file_name)
+                    if p and os.path.exists(p):
                         env = dict(os.environ)
                         if hasattr(sys, '_MEIPASS'):
                             for key in ['LD_LIBRARY_PATH', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH']:
@@ -1353,53 +1403,85 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/run":
                 cfg_path = body.get("configPath", "")
                 selected_tests = body.get("tests", [])
-                
-                if IS_RUNNING:
-                    response_data = {"error": "A test execution is already running"}
-                elif not selected_tests:
-                    response_data = {"error": "No test cases selected"}
-                else:
-                    global CURRENT_RUN_START_TIME
-                    CURRENT_RUN_START_TIME = time.time() - 3.0
+
+                global IS_RUNNING, CURRENT_RUN_BASELINE_FOLDERS, OUTPUT_HISTORY_BASE
+
+                # Acquire the runner lock so the "already running?" check and the
+                # IS_RUNNING flip happen atomically (prevents two concurrent
+                # /api/run calls from both launching a subprocess).
+                with RUNNER_LOCK:
+                    if IS_RUNNING:
+                        response_data = {"error": "A test execution is already running"}
+                    elif not selected_tests:
+                        response_data = {"error": "No test cases selected"}
+                    else:
+                        IS_RUNNING = True  # claim the slot before releasing the lock
+
+                # response_data is still None only when we successfully claimed the slot.
+                if response_data is None:
                     # Resolve WTS paths
                     wts_paths = resolve_wts_paths(cfg_path)
                     wts_path = wts_paths["wts_exe"]
                     wts_bin_dir = wts_paths["bin_dir"]
-                    
+
+                    # Snapshot log folders present now so "current run only"
+                    # analytics can later identify folders created by this run.
+                    log_dir = wts_paths["log_dir"]
+                    baseline = set()
+                    if os.path.isdir(log_dir):
+                        try:
+                            baseline = {d for d in os.listdir(log_dir)
+                                        if os.path.isdir(os.path.join(log_dir, d))}
+                        except Exception:
+                            baseline = set()
+                    CURRENT_RUN_BASELINE_FOLDERS = baseline
+
+                    # Reset output buffer for the new run.
+                    OUTPUT_HISTORY.clear()
+                    OUTPUT_HISTORY_BASE = 0
+
                     # Compute project role prefix
                     project_role = "EHT"
                     parent_dir_name = os.path.basename(os.path.dirname(cfg_path))
                     if "WTS-" in parent_dir_name:
                         project_role = parent_dir_name.split('-', 1)[1]
-                        
+
                     # Determine if we should use WSL dynamically
                     use_wsl = False
                     if os.name == 'nt':
                         if not wts_path.lower().endswith('.exe'):
                             use_wsl = True
-                            
+
                     # Prepare command line
-                    if len(selected_tests) == 1:
-                        cmd = [wts_path, project_role, selected_tests[0]]
-                    else:
-                        cmd = [wts_path, "-p", project_role, "-g", "wts_group_test.txt"]
-                        # Write group test cases file in wts_bin_dir
-                        group_file_path = os.path.join(wts_bin_dir, "wts_group_test.txt")
-                        with open(group_file_path, 'w', encoding='utf-8') as f:
-                            for t in selected_tests:
-                                f.write(f"{t}\n")
-                                
-                    # Start thread to execute subprocess
-                    t = threading.Thread(target=run_tests_thread, args=(cmd, use_wsl, wts_bin_dir))
-                    t.daemon = True
-                    t.start()
-                    
-                    response_data = {"success": True, "message": "Tests execution initiated"}
+                    try:
+                        if len(selected_tests) == 1:
+                            cmd = [wts_path, project_role, selected_tests[0]]
+                        else:
+                            cmd = [wts_path, "-p", project_role, "-g", "wts_group_test.txt"]
+                            # Write group test cases file in wts_bin_dir
+                            group_file_path = os.path.join(wts_bin_dir, "wts_group_test.txt")
+                            with open(group_file_path, 'w', encoding='utf-8') as f:
+                                for t in selected_tests:
+                                    f.write(f"{t}\n")
+
+                        # Start thread to execute subprocess
+                        t = threading.Thread(target=run_tests_thread, args=(cmd, use_wsl, wts_bin_dir))
+                        t.daemon = True
+                        t.start()
+
+                        response_data = {"success": True, "message": "Tests execution initiated"}
+                    except Exception as e:
+                        # Failed before the worker thread could take over; release the slot.
+                        with RUNNER_LOCK:
+                            IS_RUNNING = False
+                        response_data = {"error": f"Failed to start test execution: {e}"}
                     
             elif path == "/api/stop":
-                if ACTIVE_SUBPROCESS and IS_RUNNING:
+                with RUNNER_LOCK:
+                    proc = ACTIVE_SUBPROCESS if IS_RUNNING else None
+                if proc:
                     try:
-                        ACTIVE_SUBPROCESS.terminate()
+                        proc.terminate()
                         response_data = {"success": True, "message": "Tests execution terminated"}
                     except Exception as e:
                         response_data = {"error": f"Failed to stop tests: {str(e)}"}
@@ -1428,6 +1510,16 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
 # Custom server to handle random open port
 def run_server(port=8000):
     global LAST_HEARTBEAT
+
+    # Configure logging. Default level INFO hides the verbose per-request DEBUG
+    # lines; set WTS_LOG_LEVEL=DEBUG to see them.
+    level_name = os.environ.get("WTS_LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, level_name, logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        stream=sys.stdout,
+    )
+
     init_paths()
     
     server_address = ('127.0.0.1', port)
@@ -1445,7 +1537,7 @@ def run_server(port=8000):
             continue
             
     if httpd is None:
-        print("CRITICAL: Could not find any free port to bind server.")
+        logger.critical("Could not find any free port to bind server.")
         sys.exit(1)
         
     print(f"WTS_SERVER_PORT={port}")
@@ -1458,9 +1550,11 @@ def run_server(port=8000):
         # Wait 15 seconds before checking to allow browser to launch and load page
         time.sleep(15.0)
         while True:
-            # If no heartbeat has been received for over 60 seconds, shut down server
-            if time.time() - LAST_HEARTBEAT > 60.0:
-                print("No browser heartbeat received. Shutting down server automatically...")
+            # If no heartbeat has been received for over 60 seconds, shut down
+            # the server -- unless a test run is in progress, so closing the tab
+            # (or a transient disconnect) never kills a running test.
+            if time.time() - LAST_HEARTBEAT > 60.0 and not IS_RUNNING:
+                logger.warning("No browser heartbeat received. Shutting down server automatically...")
                 sys.stdout.flush()
                 os._exit(0)
             time.sleep(5.0)
@@ -1473,7 +1567,7 @@ def run_server(port=8000):
     try:
         webbrowser.open(f"http://127.0.0.1:{port}/")
     except Exception as e:
-        print(f"Error launching browser: {e}")
+        logger.warning(f"Error launching browser: {e}")
         sys.stdout.flush()
         
     try:
@@ -1487,5 +1581,5 @@ if __name__ == "__main__":
     default_port = 8000
     if len(sys.argv) > 1:
         try: default_port = int(sys.argv[1])
-        except: pass
+        except Exception: pass
     run_server(default_port)

@@ -13,6 +13,7 @@ const state = {
     xmlTestCases: [],
     xmlTestbeds: [],
     xmlDetails: {},
+    latestStatusMap: {},
     exclusions: [],
     tmsParams: [],
     tmsUploadEnabled: false,
@@ -54,12 +55,25 @@ async function apiFetch(path, options = {}) {
     }
 }
 
+// Escape a value for safe interpolation into innerHTML. Config files, log/file
+// names and XML content are all external input, so anything rendered via
+// template strings must pass through this to avoid HTML/attribute injection.
+function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // Show Alert Notification (toast-like)
 function showNotification(message, type = 'blue') {
     const toast = document.createElement('div');
     toast.className = `toast-alert ${type}`;
     toast.innerHTML = `
-        <span class="toast-text">${message}</span>
+        <span class="toast-text">${esc(message)}</span>
         <button class="toast-close">&times;</button>
     `;
     document.body.appendChild(toast);
@@ -329,18 +343,18 @@ function renderConfigParameters() {
             tr.className = 'row-commented';
         }
         
-        const keyDisplay = p.commented ? `[OFF] ${p.key}` : p.key;
-        
+        const keyDisplay = p.commented ? `[OFF] ${esc(p.key)}` : esc(p.key);
+
         let typeBadgeClass = 'badge-blue';
         if (p.type === 'define_kv_pair') typeBadgeClass = 'badge-purple';
         if (p.type === 'ip_port_pair') typeBadgeClass = 'badge-green';
-        
+
         const typeDisplay = p.type.replace('_pair', '').replace('_', ' ').toUpperCase();
-        
+
         tr.innerHTML = `
             <td class="table-cell-key">${keyDisplay}</td>
-            <td class="table-cell-value" title="${p.value}">${p.value}</td>
-            <td><span class="badge ${typeBadgeClass}">${typeDisplay}</span></td>
+            <td class="table-cell-value" title="${esc(p.value)}">${esc(p.value)}</td>
+            <td><span class="badge ${typeBadgeClass}">${esc(typeDisplay)}</span></td>
             <td class="text-right" style="white-space: nowrap;">
                 <button class="action-icon-btn toggle-comment-btn" data-index="${p.index}" style="color: ${p.commented ? 'var(--text-muted)' : 'var(--accent-color)'};" title="${p.commented ? 'Activate (Uncomment)' : 'Comment Out'}">
                     <i data-lucide="${p.commented ? 'toggle-left' : 'toggle-right'}"></i>
@@ -468,7 +482,7 @@ function renderDeviceToggles() {
         row.className = 'device-toggle-row';
         const label = d.ip ? `${d.name} (${d.ip})` : d.name;
         row.innerHTML = `
-            <span>${label}</span>
+            <span>${esc(label)}</span>
             <label class="switch-container">
                 <input type="checkbox" class="device-switch" data-index="${d.index}" ${d.enabled ? 'checked' : ''}>
                 <span class="switch-slider"></span>
@@ -540,10 +554,10 @@ async function runCheckAlive() {
                     
                     row.innerHTML = `
                         <div class="alive-info">
-                            <span class="alive-name" title="${item.key}">${item.key}</span>
-                            <span class="alive-target">${targetDisplay} (${typeLabel})</span>
+                            <span class="alive-name" title="${esc(item.key)}">${esc(item.key)}</span>
+                            <span class="alive-target">${esc(targetDisplay)} (${esc(typeLabel)})</span>
                         </div>
-                        <span class="badge ${statusClass}">${statusText}</span>
+                        <span class="badge ${statusClass}">${esc(statusText)}</span>
                     `;
                     container.appendChild(row);
                 });
@@ -780,9 +794,9 @@ function updateTestExecutionChecklist() {
         
         row.innerHTML = `
             <label class="checkbox-container">
-                <input type="checkbox" class="test-checkbox" data-test="${tc}" ${isChecked}>
+                <input type="checkbox" class="test-checkbox" data-test="${esc(tc)}" ${isChecked}>
                 <span class="checkmark"></span>
-                <span class="checkbox-item-label">${tc}</span>
+                <span class="checkbox-item-label">${esc(tc)}</span>
             </label>
         `;
         container.appendChild(row);
@@ -808,10 +822,9 @@ function updateTestExecutionChecklist() {
 }
 
 function getTestCaseLatestStatus(tc) {
-    // If analytics scanned results exist, check them
-    // This requires a mock status check or scanning history
-    // We can run a scan dynamically or keep a cached history
-    return 'NT'; // Default placeholder until scanned
+    // Latest status is populated by scanAnalyticsData() from /api/results.
+    // Falls back to 'NT' when a case hasn't been scanned yet.
+    return (state.latestStatusMap && state.latestStatusMap[tc]) || 'NT';
 }
 
 function resetExecStats() {
@@ -913,9 +926,9 @@ function renderAdvancedFilterTestbeds() {
         rowInc.className = 'checkbox-item-row px-2';
         rowInc.innerHTML = `
             <label class="checkbox-container">
-                <input type="checkbox" class="tb-include-switch" data-tb="${tb}" ${isDeviceOff ? 'disabled' : ''}>
+                <input type="checkbox" class="tb-include-switch" data-tb="${esc(tb)}" ${isDeviceOff ? 'disabled' : ''}>
                 <span class="checkmark"></span>
-                <span>${tb}${deviceSuffix}</span>
+                <span>${esc(tb)}${deviceSuffix}</span>
             </label>
         `;
         listInc.appendChild(rowInc);
@@ -932,9 +945,9 @@ function renderAdvancedFilterTestbeds() {
         const isChecked = state.overrideExcludeTestbeds.has(tb) || isDeviceOff ? 'checked' : '';
         rowExc.innerHTML = `
             <label class="checkbox-container">
-                <input type="checkbox" class="tb-exclude-switch" data-tb="${tb}" ${isDeviceOff ? 'disabled' : ''} ${isChecked}>
+                <input type="checkbox" class="tb-exclude-switch" data-tb="${esc(tb)}" ${isDeviceOff ? 'disabled' : ''} ${isChecked}>
                 <span class="checkmark"></span>
-                <span>${tb}${deviceSuffix}</span>
+                <span>${esc(tb)}${deviceSuffix}</span>
             </label>
         `;
         listExc.appendChild(rowExc);
@@ -949,7 +962,13 @@ function renderAdvancedFilterTestbeds() {
 
 document.getElementById('exec-notpass-only').addEventListener('change', (e) => {
     state.overrideFailNtOnly = e.target.checked;
-    updateTestExecutionChecklist();
+    // When enabling, scan results first so latest statuses are current; the
+    // scan then refreshes the checklist itself. Otherwise just re-render.
+    if (e.target.checked && state.configPath) {
+        scanAnalyticsData(true);
+    } else {
+        updateTestExecutionChecklist();
+    }
 });
 
 // ==================== Exclusions Registry Logic ====================
@@ -973,9 +992,9 @@ function renderExclusionsModalCheckboxes() {
         
         row.innerHTML = `
             <label class="checkbox-container">
-                <input type="checkbox" class="ex-registry-checkbox" data-test="${tc}" ${isChecked}>
+                <input type="checkbox" class="ex-registry-checkbox" data-test="${esc(tc)}" ${isChecked}>
                 <span class="checkmark"></span>
-                <span>${tc}</span>
+                <span>${esc(tc)}</span>
             </label>
         `;
         container.appendChild(row);
@@ -1106,7 +1125,7 @@ document.getElementById('start-testing-btn').addEventListener('click', async () 
         // Start streaming output
         startConsoleOutputSSE();
     } else {
-        term.innerHTML += `<div class="terminal-line fail-msg">[Error] ${res.error || 'Failed to start subprocess'}</div>`;
+        term.innerHTML += `<div class="terminal-line fail-msg">[Error] ${esc(res.error || 'Failed to start subprocess')}</div>`;
         document.getElementById('start-testing-btn').disabled = false;
         document.getElementById('stop-testing-btn').disabled = true;
         document.getElementById('exec-checkbox-list').querySelectorAll('input').forEach(i => i.disabled = false);
@@ -1285,7 +1304,18 @@ async function scanAnalyticsData(silent = false) {
     
     const res = await apiFetch(url);
     if (res && !res.error) {
-        renderAnalyticsTable(res.results || []);
+        const results = res.results || [];
+        renderAnalyticsTable(results);
+
+        // Cache latest status per test case so the execution-tab
+        // "FAIL/NT only" filter (getTestCaseLatestStatus) actually works.
+        const map = {};
+        results.forEach(r => { map[r.case] = r.status; });
+        state.latestStatusMap = map;
+
+        // Refresh the execution checklist if it depends on these statuses.
+        if (state.overrideFailNtOnly) updateTestExecutionChecklist();
+
         if (!silent) showNotification('Scan completed.', 'green');
     }
 }
@@ -1319,16 +1349,16 @@ function renderAnalyticsTable(results) {
         
         // Status pill styling
         const statusClass = item.status.toLowerCase().replace(' ', '');
-        const logFolderDisplay = item.logFolder || '<span class="text-muted">-</span>';
-        
+        const logFolderDisplay = item.logFolder ? esc(item.logFolder) : '<span class="text-muted">-</span>';
+
         tr.innerHTML = `
-            <td class="font-semibold">${item.case}</td>
+            <td class="font-semibold">${esc(item.case)}</td>
             <td style="text-align: center;">
-                <span class="status-pill ${statusClass}">${item.status}</span>
+                <span class="status-pill ${statusClass}">${esc(item.status)}</span>
             </td>
             <td class="font-mono text-muted" style="font-size: 0.8rem;">${logFolderDisplay}</td>
             <td class="text-right">
-                <button class="btn btn-secondary btn-xs icon-only view-history-btn" data-case="${item.case}" title="Execution History">
+                <button class="btn btn-secondary btn-xs icon-only view-history-btn" data-case="${esc(item.case)}" title="Execution History">
                     <i data-lucide="history"></i>
                 </button>
             </td>
@@ -1371,9 +1401,9 @@ function openHistoryModal(testCaseName, history) {
             const statusClass = run.result.toLowerCase();
             tr.innerHTML = `
                 <td style="text-align: center;">
-                    <span class="status-pill ${statusClass}">${run.result}</span>
+                    <span class="status-pill ${statusClass}">${esc(run.result)}</span>
                 </td>
-                <td class="font-mono text-muted" style="font-size: 0.85rem;">${run.folder}</td>
+                <td class="font-mono text-muted" style="font-size: 0.85rem;">${esc(run.folder)}</td>
             `;
             tbody.appendChild(tr);
         });
@@ -1483,12 +1513,12 @@ function renderLogFoldersList() {
         
         li.innerHTML = `
             <div class="log-folder-item" style="display: flex; align-items: center; width: 100%; gap: 0.5rem;">
-                <input type="checkbox" class="folder-select-checkbox" data-folder="${folder}" style="cursor: pointer; margin-right: 0.25rem;">
+                <input type="checkbox" class="folder-select-checkbox" data-folder="${esc(folder)}" style="cursor: pointer; margin-right: 0.25rem;">
                 <span class="log-folder-name" style="flex-grow: 1; display: flex; align-items: center; gap: 0.5rem;">
                     <i data-lucide="folder"></i>
-                    <span>${folder}</span>
+                    <span>${esc(folder)}</span>
                 </span>
-                <span class="log-folder-meta">${dateLabel}</span>
+                <span class="log-folder-meta">${esc(dateLabel)}</span>
             </div>
         `;
         
@@ -1563,15 +1593,15 @@ function renderLogFilesTable() {
             <td class="font-semibold">
                 <div class="flex-row gap-2" style="display:inline-flex; align-items:center;">
                     <i data-lucide="${iconName}" style="width: 16px; height: 16px; color: var(--text-secondary);"></i>
-                    <span>${file.name}</span>
+                    <span>${esc(file.name)}</span>
                 </div>
             </td>
-            <td class="text-muted font-mono" style="font-size: 0.8rem;">${file.size}</td>
+            <td class="text-muted font-mono" style="font-size: 0.8rem;">${esc(file.size)}</td>
             <td class="text-right">
-                <button class="btn btn-secondary btn-xs open-file-btn" data-file="${file.name}" title="${openTitle}">
+                <button class="btn btn-secondary btn-xs open-file-btn" data-file="${esc(file.name)}" title="${esc(openTitle)}">
                     <i data-lucide="external-link"></i>
                 </button>
-                <button class="btn btn-danger btn-xs icon-only delete-file-btn ml-1" data-file="${file.name}" title="Delete file">
+                <button class="btn btn-danger btn-xs icon-only delete-file-btn ml-1" data-file="${esc(file.name)}" title="Delete file">
                     <i data-lucide="trash-2"></i>
                 </button>
             </td>
@@ -1732,8 +1762,8 @@ function renderXmlDetails(testCaseName) {
     keys.forEach(k => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td class="font-semibold" style="width: 250px;">${k}</td>
-            <td class="font-mono text-muted" style="font-size: 0.85rem;">${details[k]}</td>
+            <td class="font-semibold" style="width: 250px;">${esc(k)}</td>
+            <td class="font-mono text-muted" style="font-size: 0.85rem;">${esc(details[k])}</td>
         `;
         tbody.appendChild(tr);
     });
@@ -1766,8 +1796,8 @@ function renderTmsTable() {
     filtered.forEach(p => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td class="font-semibold">${p.key}</td>
-            <td class="font-mono text-muted value-cell" style="font-size: 0.85rem;" title="${p.value}">${p.value}</td>
+            <td class="font-semibold">${esc(p.key)}</td>
+            <td class="font-mono text-muted value-cell" style="font-size: 0.85rem;" title="${esc(p.value)}">${esc(p.value)}</td>
             <td class="text-right">
                 <button class="action-icon-btn edit-tms-btn" data-index="${p.index}" title="Edit Parameter">
                     <i data-lucide="edit-3"></i>
@@ -2004,7 +2034,7 @@ function renderFsEntries(drives, entries) {
             li.innerHTML = `
                 <div class="fs-entry-name folder">
                     <i data-lucide="hard-drive"></i>
-                    <span>Disk Drive (${drv})</span>
+                    <span>Disk Drive (${esc(drv)})</span>
                 </div>
             `;
             list.appendChild(li);
@@ -2034,7 +2064,7 @@ function renderFsEntries(drives, entries) {
             li.innerHTML = `
                 <div class="fs-entry-name ${typeClass}">
                     <i data-lucide="${iconName}"></i>
-                    <span>${e.name}</span>
+                    <span>${esc(e.name)}</span>
                 </div>
             `;
             list.appendChild(li);
