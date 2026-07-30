@@ -721,7 +721,11 @@ async function loadXmlSpecs() {
         state.xmlTestCases = res.testCases || [];
         state.xmlTestbeds = res.testbeds || [];
         state.xmlDetails = res.details || {};
-        
+
+        // Restore this config's saved selection/filters before rendering so the
+        // checklist and testbed filters come back exactly as the user left them.
+        restoreSelectionState();
+
         updateTestExecutionChecklist();
         renderXmlTestCaseList();
         renderAdvancedFilterTestbeds();
@@ -841,13 +845,73 @@ function resetExecStats() {
 function updateExecStats(resetResults = true) {
     state.execStats.total = state.selectedTests.size;
     document.getElementById('exec-stat-total').innerText = state.execStats.total;
-    
+
     if (resetResults) {
         resetExecStats();
     }
-    
+
     // Enable run button if any test selected
     document.getElementById('start-testing-btn').disabled = state.selectedTests.size === 0;
+
+    // Persist the selection/filters on every change so a page reload restores them.
+    saveSelectionState();
+}
+
+// ---- Selection & filter persistence (per config path) ----
+
+function selectionStorageKey() {
+    return `wts_sel::${state.configPath || 'default'}`;
+}
+
+function saveSelectionState() {
+    if (!state.configPath) return;
+    const roleBtn = document.querySelector('#exec-role-selector .role-btn.active');
+    const data = {
+        tests: Array.from(state.selectedTests),
+        role: roleBtn ? roleBtn.getAttribute('data-role') : 'All',
+        failNtOnly: state.overrideFailNtOnly,
+        includeTb: Array.from(state.overrideIncludeTestbeds),
+        excludeTb: Array.from(state.overrideExcludeTestbeds)
+    };
+    try {
+        localStorage.setItem(selectionStorageKey(), JSON.stringify(data));
+    } catch (e) {
+        console.debug('Failed to persist selection state:', e);
+    }
+}
+
+function restoreSelectionState() {
+    let data = null;
+    try {
+        data = JSON.parse(localStorage.getItem(selectionStorageKey()));
+    } catch (e) {
+        data = null;
+    }
+
+    // Always start from a clean slate so a previous config's selection never
+    // leaks across a config switch, then overlay any saved state.
+    state.selectedTests = new Set();
+    state.overrideFailNtOnly = false;
+    state.overrideIncludeTestbeds = new Set();
+    state.overrideExcludeTestbeds = new Set();
+    let role = 'All';
+
+    if (data) {
+        // Restore selected tests, dropping any no longer present in the specs.
+        const valid = new Set(state.xmlTestCases);
+        state.selectedTests = new Set((data.tests || []).filter(t => valid.has(t)));
+        state.overrideFailNtOnly = !!data.failNtOnly;
+        state.overrideIncludeTestbeds = new Set(data.includeTb || []);
+        state.overrideExcludeTestbeds = new Set(data.excludeTb || []);
+        role = data.role || 'All';
+    }
+
+    const notpass = document.getElementById('exec-notpass-only');
+    if (notpass) notpass.checked = state.overrideFailNtOnly;
+
+    document.querySelectorAll('#exec-role-selector .role-btn').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-role') === role);
+    });
 }
 
 // Test role selector click
@@ -1357,19 +1421,29 @@ function renderAnalyticsTable(results) {
                 <span class="status-pill ${statusClass}">${esc(item.status)}</span>
             </td>
             <td class="font-mono text-muted" style="font-size: 0.8rem;">${logFolderDisplay}</td>
-            <td class="text-right">
+            <td class="text-right" style="white-space: nowrap;">
+                ${item.logFolder ? `<button class="btn btn-secondary btn-xs icon-only open-result-log-btn" title="Open this test's log">
+                    <i data-lucide="file-text"></i>
+                </button>` : ''}
                 <button class="btn btn-secondary btn-xs icon-only view-history-btn" data-case="${esc(item.case)}" title="Execution History">
                     <i data-lucide="history"></i>
                 </button>
             </td>
         `;
-        
+
         tbody.appendChild(tr);
-        
+
         // Wire up history button
         tr.querySelector('.view-history-btn').addEventListener('click', () => {
             openHistoryModal(item.case, item.history);
         });
+
+        // Wire up "open log" button (only present when a result log exists)
+        if (item.logFolder) {
+            tr.querySelector('.open-result-log-btn').addEventListener('click', () => {
+                openLogForResult(item.case, item.logFolder);
+            });
+        }
     });
     
     document.getElementById('analytics-summary-badge').innerText = 
@@ -1411,6 +1485,155 @@ function openHistoryModal(testCaseName, history) {
     
     openModal('history-modal');
 }
+
+// Render log text into a container, escaping it and highlighting lines that
+// match `highlightRe`. Returns the DOM id of the first highlighted line (or null).
+function renderLogWithHighlight(container, text, highlightRe) {
+    const lines = text.split('\n');
+    let firstMatchId = null;
+    const parts = lines.map((ln, i) => {
+        const safe = esc(ln);
+        if (highlightRe && highlightRe.test(ln)) {
+            const id = `logmatch-${i}`;
+            if (firstMatchId === null) firstMatchId = id;
+            return `<span id="${id}" class="log-hl">${safe}</span>`;
+        }
+        return safe;
+    });
+    container.innerHTML = parts.join('\n');
+    return firstMatchId;
+}
+
+// Open the log file for a specific test-case result and jump to the result line.
+async function openLogForResult(caseName, logFolder) {
+    const fileName = `log_${caseName}.log`;
+    const url = `/api/logs/view?folder=${encodeURIComponent(logFolder)}&file=${encodeURIComponent(fileName)}`;
+
+    let text;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        text = await res.text();
+    } catch (e) {
+        showNotification(`Could not open log for ${caseName}.`, 'red');
+        return;
+    }
+
+    document.getElementById('log-view-title').innerText = `Log: ${logFolder}/${fileName}`;
+
+    const content = document.getElementById('log-view-content');
+    const firstMatchId = renderLogWithHighlight(content, text, /final test result/i);
+
+    // Match the logs-tab modal behaviour: wrap preference + reset maximize state.
+    const storedWrap = localStorage.getItem('log_wrap_text') === 'true';
+    content.classList.toggle('wrap-text', storedWrap);
+
+    const logModal = document.getElementById('log-view-modal');
+    logModal.classList.remove('maximized');
+    const maxBtn = document.getElementById('log-view-maximize-btn');
+    if (maxBtn) maxBtn.innerHTML = '<i data-lucide="maximize" class="icon-xs"></i>';
+
+    document.getElementById('log-view-copy-btn').onclick = () => {
+        navigator.clipboard.writeText(text).then(() => showNotification('Logs copied to clipboard.', 'green'));
+    };
+
+    openModal('log-view-modal');
+    // Offer the packet captures sitting in the same log folder.
+    setupCaptureButton(logFolder, caseName);
+    lucide.createIcons();
+
+    // Scroll to the result line once the modal is laid out.
+    if (firstMatchId) {
+        requestAnimationFrame(() => {
+            const el = document.getElementById(firstMatchId);
+            if (el) el.scrollIntoView({ block: 'center' });
+        });
+    }
+}
+
+// Launch a pcap in Wireshark via the backend; fall back to a browser download.
+async function openCaptureFile(folder, fileName) {
+    showNotification(`Launching Wireshark for ${fileName}...`, 'blue');
+    const res = await apiFetch('/api/logs/open-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: folder, file: fileName })
+    });
+    if (res && res.error) {
+        // Local launch failed (e.g. no Wireshark) -> download the capture instead.
+        window.open(`/api/logs/view?folder=${encodeURIComponent(folder)}&file=${encodeURIComponent(fileName)}`);
+    }
+}
+
+// Populate the log-view modal's "Open Capture" control with the pcap files that
+// live in `folder`. Captures whose name contains `caseHint` are listed first.
+async function setupCaptureButton(folder, caseHint) {
+    const wrap = document.getElementById('log-view-capture-wrap');
+    const btn = document.getElementById('log-view-capture-btn');
+    const menu = document.getElementById('log-view-capture-menu');
+    const label = document.getElementById('log-view-capture-label');
+
+    // Reset to hidden/empty each time the modal opens.
+    menu.style.display = 'none';
+    menu.innerHTML = '';
+    wrap.style.display = 'none';
+    btn.onclick = null;
+    if (!folder) return;
+
+    const res = await apiFetch(`/api/logs/files?folder=${encodeURIComponent(folder)}`);
+    if (!res || res.error || !res.files) return;
+
+    const pcaps = res.files.filter(f => f.name.toLowerCase().includes('pcap'));
+    if (pcaps.length === 0) return;
+
+    if (caseHint) {
+        const hint = caseHint.toLowerCase();
+        pcaps.sort((a, b) => {
+            const am = a.name.toLowerCase().includes(hint) ? 0 : 1;
+            const bm = b.name.toLowerCase().includes(hint) ? 0 : 1;
+            return am - bm || a.name.localeCompare(b.name);
+        });
+    }
+
+    wrap.style.display = '';
+    label.innerText = pcaps.length === 1 ? 'Open Capture' : `Captures (${pcaps.length})`;
+
+    pcaps.forEach(f => {
+        const item = document.createElement('button');
+        item.className = 'capture-menu-item';
+        item.innerHTML = `
+            <i data-lucide="waves" class="icon-xs"></i>
+            <span class="cap-name">${esc(f.name)}</span>
+            <span class="text-muted" style="margin-left: auto; font-size: 0.72rem;">${esc(f.size)}</span>
+        `;
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.style.display = 'none';
+            openCaptureFile(folder, f.name);
+        });
+        menu.appendChild(item);
+    });
+
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        if (pcaps.length === 1) {
+            openCaptureFile(folder, pcaps[0].name);
+        } else {
+            menu.style.display = (menu.style.display === 'none') ? 'block' : 'none';
+        }
+    };
+
+    lucide.createIcons();
+}
+
+// Close the capture dropdown when clicking outside of it.
+document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('log-view-capture-wrap');
+    const menu = document.getElementById('log-view-capture-menu');
+    if (menu && wrap && !wrap.contains(e.target)) {
+        menu.style.display = 'none';
+    }
+});
 
 // Hide toggle change rules
 document.getElementById('hide-nt-checkbox').addEventListener('change', () => scanAnalyticsData(true));
@@ -1679,6 +1902,9 @@ async function openLogFileDetails(fileName) {
         };
         
         openModal('log-view-modal');
+        // Offer captures from the same folder (hint with this log's case name).
+        const caseHint = fileName.replace(/^log_/i, '').replace(/\.[^.]+$/, '');
+        setupCaptureButton(state.activeLogFolder, caseHint);
         lucide.createIcons();
     }
 }
