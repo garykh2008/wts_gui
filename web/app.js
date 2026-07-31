@@ -204,6 +204,7 @@ function setupNavigation() {
                 config: 'Configuration Editor',
                 execution: 'Test Suite Execution',
                 analytics: 'Testing Results Analytics',
+                compare: 'Cross-Vendor Comparison',
                 logs: 'Log Directory Browser',
                 masterinfo: 'MasterTestInfo XML Specifications',
                 tms: 'TMS Connection Settings',
@@ -269,6 +270,14 @@ async function checkBackendStatus() {
                 // Set default to today
                 document.getElementById('analytics-date-input').value = new Date().toISOString().split('T')[0];
             }
+        }
+
+        // Vendor comparison spans multiple test days -> default to ~1 month back.
+        const compareDateEl = document.getElementById('compare-date-input');
+        if (compareDateEl && !compareDateEl.value) {
+            const cd = new Date();
+            cd.setMonth(cd.getMonth() - 1);
+            compareDateEl.value = cd.toISOString().split('T')[0];
         }
         
         // Load default exclusions
@@ -933,6 +942,9 @@ document.querySelectorAll('.role-selector .role-btn').forEach(btn => {
             renderXmlTestCaseList();
         } else if (parent.id === 'analytics-role-selector') {
             // Handled on scan click
+        } else if (parent.id === 'compare-role-selector') {
+            // Rebuild the matrix if one has already been built.
+            if (state.compareResults) buildVendorMatrix();
         } else {
             updateTestExecutionChecklist();
         }
@@ -1737,6 +1749,170 @@ document.getElementById('export-results-btn').addEventListener('click', () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+});
+
+// ==================== Vendor Comparison Tab Logic ====================
+
+// Identify the AP vendor for a single run. In APUT (4.x) the AP is the DUT; in
+// STAUT (5.x) the AP is the testbed. Returns {key,label} or null when the run
+// has no vendor metadata (e.g. results derived from log-text fallback).
+function vendorForRun(caseName, run) {
+    const suffix = caseName.split('-').pop();
+    let company, model;
+    if (suffix.startsWith('4.')) {
+        company = run.dutCompany; model = run.dutModel;
+    } else if (suffix.startsWith('5.')) {
+        company = run.testbedCompany; model = run.testbedModel;
+    } else {
+        company = run.dutCompany || run.testbedCompany;
+        model = run.dutModel || run.testbedModel;
+    }
+    company = (company || '').trim();
+    model = (model || '').trim();
+    if (!company && !model) return null;
+    const label = [company, model].filter(Boolean).join(' ');
+    return { key: label, label };
+}
+
+async function scanCompareData() {
+    if (!state.configPath) {
+        showNotification('Please load an AllInitConfig first.', 'orange');
+        return;
+    }
+    const role = document.querySelector('#compare-role-selector .role-btn.active').getAttribute('data-role');
+    let startDate = document.getElementById('compare-date-input').value;
+    if (!startDate) {
+        // Default to the analytics date so the matrix has a sensible window.
+        startDate = document.getElementById('analytics-date-input').value || '';
+        document.getElementById('compare-date-input').value = startDate;
+    }
+
+    const url = `/api/results?role=${role}&startDate=${startDate}&path=${encodeURIComponent(state.configPath)}`;
+    showNotification('Building vendor matrix...', 'blue');
+    const res = await apiFetch(url);
+    if (res && !res.error) {
+        state.compareResults = res.results || [];
+        buildVendorMatrix();
+        showNotification('Matrix built.', 'green');
+    }
+}
+
+function buildVendorMatrix() {
+    const results = state.compareResults || [];
+    const inconsistentOnly = document.getElementById('compare-inconsistent-only').checked;
+    const hideAllPass = document.getElementById('compare-hide-allpass').checked;
+
+    const vendorKeys = new Set();
+    const rows = [];
+    results.forEach(item => {
+        const cells = {};
+        // history is latest-first, so the first entry seen per vendor is the latest.
+        (item.history || []).forEach(run => {
+            if (run.result !== 'PASS' && run.result !== 'FAIL') return;
+            const v = vendorForRun(item.case, run);
+            if (!v) return;
+            if (!(v.key in cells)) {
+                cells[v.key] = { status: run.result, folder: run.folder, message: run.message };
+                vendorKeys.add(v.key);
+            }
+        });
+        if (Object.keys(cells).length > 0) rows.push({ case: item.case, cells });
+    });
+
+    const vendors = Array.from(vendorKeys).sort();
+
+    const visibleRows = rows.filter(r => {
+        const statuses = vendors.map(v => r.cells[v] && r.cells[v].status).filter(Boolean);
+        const hasPass = statuses.includes('PASS');
+        const hasFail = statuses.includes('FAIL');
+        if (inconsistentOnly && !(hasPass && hasFail)) return false;
+        if (hideAllPass && statuses.length > 0 && statuses.every(s => s === 'PASS')) return false;
+        return true;
+    });
+
+    state.compareVendors = vendors;
+    state.compareRows = visibleRows;
+
+    renderVendorMatrix(vendors, visibleRows);
+
+    document.getElementById('compare-export-btn').disabled = visibleRows.length === 0;
+    document.getElementById('compare-summary-badge').innerText =
+        `${vendors.length} vendors · ${visibleRows.length} cases`;
+}
+
+function renderVendorMatrix(vendors, rows) {
+    const thead = document.getElementById('compare-table-head');
+    const tbody = document.getElementById('compare-table-body');
+
+    if (vendors.length === 0 || rows.length === 0) {
+        thead.innerHTML = '';
+        tbody.innerHTML = `<tr><td class="text-center text-muted py-5">No vendor results found. Ensure scanned runs contain tms_&lt;case&gt;.json data.</td></tr>`;
+        return;
+    }
+
+    thead.innerHTML = `<tr>
+        <th class="matrix-case-col">Test Case</th>
+        ${vendors.map(v => `<th class="matrix-vendor-col" title="${esc(v)}">${esc(v)}</th>`).join('')}
+    </tr>`;
+
+    tbody.innerHTML = '';
+    rows.forEach(r => {
+        const statuses = vendors.map(v => r.cells[v] && r.cells[v].status).filter(Boolean);
+        const inconsistent = statuses.includes('PASS') && statuses.includes('FAIL');
+
+        const tr = document.createElement('tr');
+        if (inconsistent) tr.className = 'matrix-inconsistent';
+
+        const cellsHtml = vendors.map(v => {
+            const c = r.cells[v];
+            if (!c) return `<td class="matrix-cell"><span class="matrix-dash">-</span></td>`;
+            const cls = c.status === 'PASS' ? 'pass' : 'fail';
+            const title = (c.status === 'FAIL' && c.message) ? esc(c.message) : '';
+            return `<td class="matrix-cell">
+                <button class="matrix-pill ${cls}" data-case="${esc(r.case)}" data-folder="${esc(c.folder)}" title="${title}">${esc(c.status)}</button>
+            </td>`;
+        }).join('');
+
+        tr.innerHTML = `<td class="matrix-case-col font-semibold">${esc(r.case)}</td>${cellsHtml}`;
+        tbody.appendChild(tr);
+
+        tr.querySelectorAll('.matrix-pill').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const folder = btn.getAttribute('data-folder');
+                if (folder) openLogForResult(btn.getAttribute('data-case'), folder);
+            });
+        });
+    });
+}
+
+function exportCompareMatrix() {
+    const vendors = state.compareVendors || [];
+    const rows = state.compareRows || [];
+    if (!vendors.length || !rows.length) return;
+
+    const csvRows = [["Test Case", ...vendors]];
+    rows.forEach(r => {
+        csvRows.push([r.case, ...vendors.map(v => (r.cells[v] ? r.cells[v].status : ''))]);
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8,﻿"
+        + csvRows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(",")).join("\n");
+
+    const link = document.createElement("a");
+    link.setAttribute("href", encodeURI(csvContent));
+    link.setAttribute("download", "vendor_comparison.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+document.getElementById('compare-scan-btn').addEventListener('click', scanCompareData);
+document.getElementById('compare-export-btn').addEventListener('click', exportCompareMatrix);
+document.getElementById('compare-inconsistent-only').addEventListener('change', () => {
+    if (state.compareResults) buildVendorMatrix();
+});
+document.getElementById('compare-hide-allpass').addEventListener('change', () => {
+    if (state.compareResults) buildVendorMatrix();
 });
 
 // ==================== Logs Tab Logic ====================

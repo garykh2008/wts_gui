@@ -35,6 +35,10 @@
                     <i data-lucide="bar-chart-3"></i>
                     <span>Analytics</span>
                 </a>
+                <a href="#compare" class="nav-item" data-tab="compare">
+                    <i data-lucide="grid-3x3"></i>
+                    <span>Vendor Compare</span>
+                </a>
                 <a href="#logs" class="nav-item" data-tab="logs">
                     <i data-lucide="folder-open"></i>
                     <span>Log Browser</span>
@@ -394,6 +398,80 @@
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 3b. VENDOR COMPARE TAB -->
+                <section id="tab-compare" class="tab-panel">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title-group">
+                                <i data-lucide="grid-3x3" class="title-icon"></i>
+                                <h3>Cross-Vendor Comparison</h3>
+                            </div>
+                        </div>
+                        <div class="card-body py-4">
+                            <div class="filters-layout">
+                                <div class="filter-item">
+                                    <label>Role</label>
+                                    <div class="role-selector" id="compare-role-selector">
+                                        <button class="role-btn active" data-role="All">All</button>
+                                        <button class="role-btn" data-role="AP">AP</button>
+                                        <button class="role-btn" data-role="STA">STA</button>
+                                    </div>
+                                </div>
+                                <div class="filter-item">
+                                    <label>Logs Since Date</label>
+                                    <input type="date" id="compare-date-input" class="form-control">
+                                </div>
+                                <div class="filter-item flex-row mt-auto gap-4">
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" id="compare-inconsistent-only">
+                                        <span class="checkmark"></span>
+                                        <span>Only inconsistent rows</span>
+                                    </label>
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" id="compare-hide-allpass">
+                                        <span class="checkmark"></span>
+                                        <span>Hide all-PASS rows</span>
+                                    </label>
+                                </div>
+                                <div class="filter-item ml-auto flex-row mt-auto">
+                                    <button class="btn btn-primary" id="compare-scan-btn">
+                                        <i data-lucide="search"></i>
+                                        <span>Build Matrix</span>
+                                    </button>
+                                    <button class="btn btn-secondary ml-2" id="compare-export-btn" disabled>
+                                        <i data-lucide="download"></i>
+                                        <span>Export...</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <div class="card-title-group">
+                                <i data-lucide="table" class="title-icon"></i>
+                                <h3>Vendor Matrix</h3>
+                            </div>
+                            <span class="header-badge" id="compare-summary-badge">Not built</span>
+                        </div>
+                        <div class="card-body no-padding table-scroll-y">
+                            <div id="compare-matrix-wrap" style="overflow: auto; max-height: 65vh;">
+                                <table class="table compare-matrix" id="compare-table">
+                                    <thead id="compare-table-head"></thead>
+                                    <tbody id="compare-table-body">
+                                        <tr>
+                                            <td class="text-center text-muted py-5">
+                                                Click "Build Matrix" to compare vendors across test cases.
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </section>
