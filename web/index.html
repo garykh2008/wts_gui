@@ -381,13 +381,14 @@
                                     <tr>
                                         <th>Test Case Name</th>
                                         <th style="width: 150px; text-align: center;">Final Status</th>
+                                        <th style="width: 200px;">DUT / Testbed</th>
                                         <th>Log Directory</th>
                                         <th class="text-right" style="width: 100px;">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="analytics-table-body">
                                     <tr>
-                                        <td colspan="4" class="text-center text-muted py-5">
+                                        <td colspan="5" class="text-center text-muted py-5">
                                             Click "Scan Results" to load test outcomes.
                                         </td>
                                     </tr>
@@ -694,7 +695,7 @@
     </div>
 
     <!-- 5. Run History Modal -->
-    <div class="modal" id="history-modal">
+    <div class="modal size-large" id="history-modal">
         <div class="modal-header">
             <h3 id="history-modal-title">Historical Records</h3>
             <button class="modal-close" data-modal="history-modal"><i data-lucide="x"></i></button>
@@ -703,7 +704,8 @@
             <table class="table" id="history-table">
                 <thead>
                     <tr>
-                        <th style="width: 150px; text-align: center;">Result</th>
+                        <th style="width: 110px; text-align: center;">Result</th>
+                        <th style="width: 220px;">DUT / Testbed</th>
                         <th>Folder</th>
                         <th style="width: 60px;"></th>
                     </tr>

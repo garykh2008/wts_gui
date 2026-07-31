@@ -582,8 +582,12 @@ function openModal(modalId) {
 }
 
 function closeModal(modalId) {
-    document.getElementById('modal-backdrop').style.display = 'none';
     document.getElementById(modalId).style.display = 'none';
+    // Keep the backdrop if another modal is still open (e.g. the log preview
+    // opened on top of the history modal), otherwise hide it.
+    const anyOpen = Array.from(document.querySelectorAll('.modal'))
+        .some(m => m.style.display === 'flex');
+    document.getElementById('modal-backdrop').style.display = anyOpen ? 'block' : 'none';
 }
 
 // Wire up close buttons
@@ -729,6 +733,10 @@ async function loadXmlSpecs() {
         updateTestExecutionChecklist();
         renderXmlTestCaseList();
         renderAdvancedFilterTestbeds();
+
+        // If the restored "FAIL/NT only" filter is on, scan once so it filters
+        // by real latest statuses instead of treating everything as NT.
+        if (state.overrideFailNtOnly) scanAnalyticsData(true);
     }
 }
 
@@ -1395,19 +1403,24 @@ function renderAnalyticsTable(results) {
     let ntCount = 0;
     let nsCount = 0;
     let totalVisible = 0;
-    
+
+    // Remember the currently visible rows so CSV export can use the data
+    // directly (including vendor/reason) rather than scraping the DOM.
+    state.analyticsVisible = [];
+
     results.forEach(item => {
         // Counts
         if (item.status === 'PASS') passCount++;
         else if (item.status === 'FAIL') failCount++;
         else if (item.status === 'NT') ntCount++;
         else if (item.status === 'Not Support') nsCount++;
-        
+
         // Hide rules
         if (hideNt && item.status === 'NT') return;
         if (hideNs && item.status === 'Not Support') return;
-        
+
         totalVisible++;
+        state.analyticsVisible.push(item);
         
         const tr = document.createElement('tr');
         
@@ -1415,11 +1428,28 @@ function renderAnalyticsTable(results) {
         const statusClass = item.status.toLowerCase().replace(' ', '');
         const logFolderDisplay = item.logFolder ? esc(item.logFolder) : '<span class="text-muted">-</span>';
 
+        // Failure reason (from tms_<case>.json) shown under the case name.
+        // Only for FAIL — a PASS message is just "OK" and would be noise.
+        const reasonLine = (item.status === 'FAIL' && item.message)
+            ? `<div class="fail-reason" title="${esc(item.message)}">${esc(item.message)}</div>`
+            : '';
+
+        // DUT / Testbed devices (from tms_<case>.json).
+        const dutStr = [item.dutCompany, item.dutModel].filter(Boolean).join(' ');
+        const tbStr = [item.testbedCompany, item.testbedModel].filter(Boolean).join(' ');
+        const devicesCell = (dutStr || tbStr)
+            ? `<div class="dev-pair">
+                    <span class="dev-line"><span class="dev-tag dut">DUT</span>${esc(dutStr || '-')}</span>
+                    <span class="dev-line"><span class="dev-tag tb">TB</span>${esc(tbStr || '-')}</span>
+               </div>`
+            : '<span class="text-muted">-</span>';
+
         tr.innerHTML = `
-            <td class="font-semibold">${esc(item.case)}</td>
+            <td class="font-semibold">${esc(item.case)}${reasonLine}</td>
             <td style="text-align: center;">
                 <span class="status-pill ${statusClass}">${esc(item.status)}</span>
             </td>
+            <td>${devicesCell}</td>
             <td class="font-mono text-muted" style="font-size: 0.8rem;">${logFolderDisplay}</td>
             <td class="text-right" style="white-space: nowrap;">
                 ${item.logFolder ? `<button class="btn btn-secondary btn-xs icon-only open-result-log-btn" title="Open this test's log">
@@ -1450,7 +1480,7 @@ function renderAnalyticsTable(results) {
         `${passCount} PASS, ${failCount} FAIL, ${ntCount} NT, ${nsCount} Excluded`;
         
     if (totalVisible === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-5">No records matching search filters.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-5">No records matching search filters.</td></tr>`;
         document.getElementById('export-results-btn').disabled = true;
     } else {
         document.getElementById('export-results-btn').disabled = false;
@@ -1468,16 +1498,30 @@ function openHistoryModal(testCaseName, history) {
     tbody.innerHTML = '';
     
     if (!history || history.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4">No historical runs recorded.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4">No historical runs recorded.</td></tr>`;
     } else {
         history.forEach(run => {
             const tr = document.createElement('tr');
             const statusClass = run.result.toLowerCase();
+            const reasonLine = (run.result === 'FAIL' && run.message)
+                ? `<div class="fail-reason" title="${esc(run.message)}">${esc(run.message)}</div>`
+                : '';
+
+            const dutStr = [run.dutCompany, run.dutModel].filter(Boolean).join(' ');
+            const tbStr = [run.testbedCompany, run.testbedModel].filter(Boolean).join(' ');
+            const devicesCell = (dutStr || tbStr)
+                ? `<div class="dev-pair">
+                        <span class="dev-line"><span class="dev-tag dut">DUT</span>${esc(dutStr || '-')}</span>
+                        <span class="dev-line"><span class="dev-tag tb">TB</span>${esc(tbStr || '-')}</span>
+                   </div>`
+                : '<span class="text-muted">-</span>';
+
             tr.innerHTML = `
                 <td style="text-align: center;">
                     <span class="status-pill ${statusClass}">${esc(run.result)}</span>
                 </td>
-                <td class="font-mono text-muted" style="font-size: 0.85rem;">${esc(run.folder)}</td>
+                <td>${devicesCell}</td>
+                <td class="font-mono text-muted" style="font-size: 0.85rem;">${esc(run.folder)}${reasonLine}</td>
                 <td class="text-right">
                     ${run.folder ? `<button class="btn btn-secondary btn-xs icon-only history-open-log-btn" title="Open this run's log">
                         <i data-lucide="file-text"></i>
@@ -1664,29 +1708,27 @@ document.getElementById('hide-excluded-checkbox').addEventListener('change', () 
 
 // Export CSV / Excel results
 document.getElementById('export-results-btn').addEventListener('click', () => {
-    // Generate CSV data directly in browser
+    // Build CSV from the currently visible scanned data (includes vendor/reason).
     const rows = [
-        ["Test Case Name", "Final Status", "Log Directory"]
+        ["Test Case Name", "Final Status", "DUT", "Testbed", "Failure Reason", "Log Directory"]
     ];
-    
-    const tableRows = document.querySelectorAll('#analytics-table-body tr');
-    tableRows.forEach(tr => {
-        const nameNode = tr.querySelector('td:nth-child(1)');
-        const statusNode = tr.querySelector('.status-pill');
-        const folderNode = tr.querySelector('td:nth-child(3)');
-        
-        if (nameNode && statusNode && folderNode) {
-            rows.push([
-                nameNode.innerText.trim(),
-                statusNode.innerText.trim(),
-                folderNode.innerText.trim() === '-' ? '' : folderNode.innerText.trim()
-            ]);
-        }
+
+    (state.analyticsVisible || []).forEach(item => {
+        const dutStr = [item.dutCompany, item.dutModel].filter(Boolean).join(' ');
+        const tbStr = [item.testbedCompany, item.testbedModel].filter(Boolean).join(' ');
+        rows.push([
+            item.case || '',
+            item.status || '',
+            dutStr,
+            tbStr,
+            item.message || '',
+            item.logFolder || ''
+        ]);
     });
-    
+
     // Format as CSV content
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-        + rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF"
+        + rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(",")).join("\n");
         
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");

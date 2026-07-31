@@ -1393,6 +1393,49 @@ a {
     white-space: nowrap;
 }
 
+/* Failure reason shown under a test case name in the Analytics table */
+.fail-reason {
+    margin-top: 0.2rem;
+    font-weight: 400;
+    font-size: 0.75rem;
+    color: var(--status-fail);
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-width: 520px;
+}
+
+/* DUT / Testbed device pair in the Analytics table */
+.dev-pair {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 0.78rem;
+}
+
+.dev-line {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.dev-tag {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.dev-tag.dut { background: var(--accent-color); }
+.dev-tag.tb { background: var(--text-muted); }
+
 .modal.maximized {
     width: 96vw !important;
     height: 94vh !important;
