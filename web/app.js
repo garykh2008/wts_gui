@@ -582,8 +582,12 @@ function openModal(modalId) {
 }
 
 function closeModal(modalId) {
-    document.getElementById('modal-backdrop').style.display = 'none';
     document.getElementById(modalId).style.display = 'none';
+    // Keep the backdrop if another modal is still open (e.g. the log preview
+    // opened on top of the history modal), otherwise hide it.
+    const anyOpen = Array.from(document.querySelectorAll('.modal'))
+        .some(m => m.style.display === 'flex');
+    document.getElementById('modal-backdrop').style.display = anyOpen ? 'block' : 'none';
 }
 
 // Wire up close buttons
@@ -729,6 +733,10 @@ async function loadXmlSpecs() {
         updateTestExecutionChecklist();
         renderXmlTestCaseList();
         renderAdvancedFilterTestbeds();
+
+        // If the restored "FAIL/NT only" filter is on, scan once so it filters
+        // by real latest statuses instead of treating everything as NT.
+        if (state.overrideFailNtOnly) scanAnalyticsData(true);
     }
 }
 
