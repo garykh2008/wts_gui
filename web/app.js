@@ -1497,7 +1497,7 @@ function openHistoryModal(testCaseName, history) {
     tbody.innerHTML = '';
     
     if (!history || history.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4">No historical runs recorded.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4">No historical runs recorded.</td></tr>`;
     } else {
         history.forEach(run => {
             const tr = document.createElement('tr');
@@ -1505,10 +1505,21 @@ function openHistoryModal(testCaseName, history) {
             const reasonLine = run.message
                 ? `<div class="fail-reason" title="${esc(run.message)}">${esc(run.message)}</div>`
                 : '';
+
+            const dutStr = [run.dutCompany, run.dutModel].filter(Boolean).join(' ');
+            const tbStr = [run.testbedCompany, run.testbedModel].filter(Boolean).join(' ');
+            const devicesCell = (dutStr || tbStr)
+                ? `<div class="dev-pair">
+                        <span class="dev-line"><span class="dev-tag dut">DUT</span>${esc(dutStr || '-')}</span>
+                        <span class="dev-line"><span class="dev-tag tb">TB</span>${esc(tbStr || '-')}</span>
+                   </div>`
+                : '<span class="text-muted">-</span>';
+
             tr.innerHTML = `
                 <td style="text-align: center;">
                     <span class="status-pill ${statusClass}">${esc(run.result)}</span>
                 </td>
+                <td>${devicesCell}</td>
                 <td class="font-mono text-muted" style="font-size: 0.85rem;">${esc(run.folder)}${reasonLine}</td>
                 <td class="text-right">
                     ${run.folder ? `<button class="btn btn-secondary btn-xs icon-only history-open-log-btn" title="Open this run's log">
