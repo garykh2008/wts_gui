@@ -250,6 +250,10 @@
                                     <i data-lucide="list-checks" class="title-icon"></i>
                                     <h3 id="exec-suite-title">Test Suite Selection</h3>
                                 </div>
+                                <div class="view-toggle" id="exec-view-toggle">
+                                    <button class="view-btn active" data-view="selection">Selection</button>
+                                    <button class="view-btn" data-view="progress">Progress</button>
+                                </div>
                             </div>
                             <div class="card-filters-row">
                                 <div class="role-selector" id="exec-role-selector">
@@ -277,6 +281,9 @@
                             <div class="card-body scroll-y border-top mt-2" style="max-height: 480px;">
                                 <div class="checkbox-list" id="exec-checkbox-list">
                                     <div class="text-muted text-center py-5">Please load a configuration first.</div>
+                                </div>
+                                <div class="live-progress-list" id="exec-live-progress" style="display: none;">
+                                    <div class="text-muted text-center py-5">No active run.</div>
                                 </div>
                             </div>
                             <div class="card-footer mt-auto pt-3 border-top flex-row">
