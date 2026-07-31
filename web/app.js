@@ -1429,7 +1429,8 @@ function renderAnalyticsTable(results) {
         const logFolderDisplay = item.logFolder ? esc(item.logFolder) : '<span class="text-muted">-</span>';
 
         // Failure reason (from tms_<case>.json) shown under the case name.
-        const reasonLine = item.message
+        // Only for FAIL — a PASS message is just "OK" and would be noise.
+        const reasonLine = (item.status === 'FAIL' && item.message)
             ? `<div class="fail-reason" title="${esc(item.message)}">${esc(item.message)}</div>`
             : '';
 
@@ -1502,7 +1503,7 @@ function openHistoryModal(testCaseName, history) {
         history.forEach(run => {
             const tr = document.createElement('tr');
             const statusClass = run.result.toLowerCase();
-            const reasonLine = run.message
+            const reasonLine = (run.result === 'FAIL' && run.message)
                 ? `<div class="fail-reason" title="${esc(run.message)}">${esc(run.message)}</div>`
                 : '';
 
