@@ -167,6 +167,67 @@ def parse_tms_conf(path):
                 records.append({'index': idx, 'original': line, 'key': k, 'value': v, 'type': t})
     return records
 
+def parse_tms_result(path):
+    """Parse a tms_<case>.json result file into a normalized dict, or None.
+
+    Returns None when the file is missing/unparseable or has no PASS/FAIL result
+    yet, so callers can fall back to scanning the log text.
+    """
+    try:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            data = json.load(f)
+    except Exception:
+        return None
+
+    # Tolerate the record being wrapped in "TmsTestResult" or given bare.
+    r = data.get("TmsTestResult", data) if isinstance(data, dict) else {}
+    if not isinstance(r, dict):
+        return None
+
+    tr = r.get("TestResult") or {}
+    result = str(tr.get("Result", "")).strip().upper()
+    if result not in ("PASS", "FAIL"):
+        return None
+
+    dut = r.get("Dut") or {}
+    tb = r.get("PrimaryTestbed") or {}
+    return {
+        "result": result,
+        "message": str(tr.get("Message", "")).strip(),
+        "dutCompany": str(dut.get("company", "")).strip(),
+        "dutModel": str(dut.get("model", "")).strip(),
+        "dutCategory": str(dut.get("Category", "")).strip(),
+        "testbedCompany": str(tb.get("company", "")).strip(),
+        "testbedModel": str(tb.get("model", "")).strip(),
+        "timestamp": str(r.get("TimeStamp", "")).strip(),
+        "source": "tms",
+    }
+
+# Blank vendor/message fields shared by log-based results (which lack this data).
+_EMPTY_RESULT_META = {
+    "message": "", "dutCompany": "", "dutModel": "", "dutCategory": "",
+    "testbedCompany": "", "testbedModel": "", "timestamp": "",
+}
+
+def parse_log_result(path):
+    """Determine PASS/FAIL from a log_<case>.log file, or None if unfinished."""
+    try:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+    except Exception:
+        return None
+
+    # Only record a result once the test case has actually finished executing.
+    if not ("FINAL TEST RESULT" in content or "END: TEST CASE" in content
+            or "Execution Time [" in content or "Stopping FTP server" in content):
+        return None
+
+    if re.search(r'FINAL TEST RESULT\s*--->\s*PASS', content, re.IGNORECASE) or "\nPASS\n" in content:
+        result = "PASS"
+    else:
+        result = "FAIL"
+    return {"result": result, "source": "log", **_EMPTY_RESULT_META}
+
 def parse_xml_data(p):
     try:
         with open(p, 'r', encoding='utf-8') as f:
@@ -1002,6 +1063,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                     except Exception: pass
                     
                 test_history_map = {}
+                target_set = set(tc_targets)
                 if os.path.exists(log_dir):
                     dirs = sorted(
                         [d for d in os.listdir(log_dir) if os.path.isdir(os.path.join(log_dir, d))],
@@ -1018,39 +1080,48 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                             if folder_date and filter_date and folder_date < filter_date:
                                 continue
                         p = folder_path
-                        for file in os.listdir(p):
-                            if file.startswith("log_") and file.endswith(".log"):
-                                tc = file[4:-4]
-                                if tc in tc_targets:
-                                    try:
-                                        with open(os.path.join(p, file), 'r', encoding='utf-8', errors='ignore') as logf:
-                                            content = logf.read()
-                                        
-                                        # Only record result if test case has actually finished executing
-                                        if "FINAL TEST RESULT" in content or "END: TEST CASE" in content or "Execution Time [" in content or "Stopping FTP server" in content:
-                                            if re.search(r'FINAL TEST RESULT\s*--->\s*PASS', content, re.IGNORECASE) or "\nPASS\n" in content:
-                                                res = "PASS"
-                                            else:
-                                                res = "FAIL"
-                                            test_history_map.setdefault(tc, []).append({'result': res, 'folder': f})
-                                    except Exception:
-                                        pass
-                
+                        try:
+                            files = set(os.listdir(p))
+                        except Exception:
+                            continue
+                        for tc in target_set:
+                            # Prefer the structured TMS result; fall back to log text.
+                            entry = None
+                            tms_name = f"tms_{tc}.json"
+                            if tms_name in files:
+                                entry = parse_tms_result(os.path.join(p, tms_name))
+                            if entry is None:
+                                log_name = f"log_{tc}.log"
+                                if log_name in files:
+                                    entry = parse_log_result(os.path.join(p, log_name))
+                            if entry:
+                                entry['folder'] = f
+                                test_history_map.setdefault(tc, []).append(entry)
+
                 # Generate final list
                 results = []
                 for tc in tc_targets:
                     hist = test_history_map.get(tc, [])
-                    res, folder = "NT", ""
+                    latest = hist[-1] if hist else None
+
                     if tc in not_support_list:
-                        res = "Not Support"
-                    elif hist:
-                        res, folder = hist[-1]['result'], hist[-1]['folder']
-                        
+                        status = "Not Support"
+                    elif latest:
+                        status = latest['result']
+                    else:
+                        status = "NT"
+
                     results.append({
                         "case": tc,
-                        "status": res,
-                        "logFolder": folder,
-                        "history": list(reversed(hist)) # latest run first
+                        "status": status,
+                        "logFolder": latest['folder'] if latest else "",
+                        "message": latest.get('message', '') if latest else "",
+                        "dutCompany": latest.get('dutCompany', '') if latest else "",
+                        "dutModel": latest.get('dutModel', '') if latest else "",
+                        "dutCategory": latest.get('dutCategory', '') if latest else "",
+                        "testbedCompany": latest.get('testbedCompany', '') if latest else "",
+                        "testbedModel": latest.get('testbedModel', '') if latest else "",
+                        "history": list(reversed(hist))  # latest run first
                     })
                 response_data = {"results": results}
                 
