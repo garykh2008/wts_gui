@@ -1436,6 +1436,67 @@ a {
 .dev-tag.dut { background: var(--accent-color); }
 .dev-tag.tb { background: var(--text-muted); }
 
+/* Cross-vendor comparison matrix */
+.compare-matrix {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.compare-matrix th,
+.compare-matrix td {
+    white-space: nowrap;
+}
+
+.compare-matrix .matrix-case-col {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--bg-secondary);
+    min-width: 220px;
+}
+
+.compare-matrix thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--bg-secondary);
+}
+
+.compare-matrix thead th.matrix-case-col {
+    z-index: 4;
+}
+
+.matrix-vendor-col {
+    text-align: center;
+    min-width: 130px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.matrix-cell {
+    text-align: center;
+}
+
+.matrix-pill {
+    border: none;
+    border-radius: 12px;
+    padding: 0.22rem 0.75rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+}
+
+.matrix-pill.pass { background: var(--status-pass); }
+.matrix-pill.fail { background: var(--status-fail); }
+.matrix-pill:hover { filter: brightness(1.1); }
+
+.matrix-dash { color: var(--text-muted); }
+
+.matrix-inconsistent { background: rgba(245, 158, 11, 0.10); }
+.matrix-inconsistent .matrix-case-col { background: rgba(245, 158, 11, 0.10); }
+
 .modal.maximized {
     width: 96vw !important;
     height: 94vh !important;
