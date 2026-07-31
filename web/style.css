@@ -1497,6 +1497,85 @@ a {
 .matrix-inconsistent { background: rgba(245, 158, 11, 0.10); }
 .matrix-inconsistent .matrix-case-col { background: rgba(245, 158, 11, 0.10); }
 
+/* Spinner used by the check-alive button and live run progress */
+@keyframes wts-spin { to { transform: rotate(360deg); } }
+.icon-spin { animation: wts-spin 0.9s linear infinite; }
+
+/* Selection / Progress view toggle in the Execution tab */
+.view-toggle {
+    display: inline-flex;
+    background: var(--bg-tertiary, rgba(148, 163, 184, 0.12));
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.view-toggle .view-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.3rem 0.75rem;
+    cursor: pointer;
+}
+
+.view-toggle .view-btn.active {
+    background: var(--accent-color);
+    color: #fff;
+}
+
+/* Live per-test-case progress list */
+.live-progress-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.progress-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+}
+
+.progress-item.clickable { cursor: pointer; }
+.progress-item.clickable:hover { border-color: var(--accent-color); }
+
+.progress-item-name {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.progress-item.running { border-color: var(--accent-color); }
+.progress-item.fail { border-color: var(--status-fail); }
+
+.progress-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0.2rem 0.55rem;
+    border-radius: 12px;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.progress-badge.pending { background: var(--text-muted); }
+.progress-badge.running { background: var(--accent-color); }
+.progress-badge.pass { background: var(--status-pass); }
+.progress-badge.fail { background: var(--status-fail); }
+
 .modal.maximized {
     width: 96vw !important;
     height: 94vh !important;

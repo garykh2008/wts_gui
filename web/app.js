@@ -23,6 +23,10 @@ const state = {
         pass: 0,
         fail: 0
     },
+    // Live per-test-case run progress
+    runOrder: [],
+    runStatusMap: {},
+    execRunning: false,
     currentTheme: 'dark',
     activeTab: 'config',
     activeLogFolder: '',
@@ -294,7 +298,14 @@ async function checkBackendStatus() {
             
             const term = document.getElementById('terminal-output');
             term.innerHTML = '<div class="terminal-line system-msg">[System] Reconnected to ongoing test execution stream...</div>';
-            
+
+            // Reconnected mid-run: reconstruct live progress from restored selection.
+            state.execRunning = true;
+            state.runOrder = Array.from(state.selectedTests);
+            state.runStatusMap = {};
+            renderLiveProgress();
+            setExecView('progress');
+
             startConsoleOutputSSE();
             syncExecStatsFromLogs();
         }
@@ -1206,6 +1217,13 @@ document.getElementById('start-testing-btn').addEventListener('click', async () 
     });
     
     if (res && res.success) {
+        // Initialize live per-case progress and switch to the Progress view.
+        state.runOrder = tests.slice();
+        state.runStatusMap = {};
+        state.execRunning = true;
+        renderLiveProgress();
+        setExecView('progress');
+
         // Start streaming output
         startConsoleOutputSSE();
     } else {
@@ -1240,10 +1258,12 @@ function startConsoleOutputSSE() {
         document.getElementById('start-testing-btn').disabled = false;
         document.getElementById('stop-testing-btn').disabled = true;
         document.getElementById('exec-checkbox-list').querySelectorAll('input').forEach(i => i.disabled = false);
-        
-        // Scan results automatically to update latest status indicators
+
+        // Run finished: refresh final per-case statuses (no more "running").
+        state.execRunning = false;
         scanAnalyticsData(true); // silent scan
         syncExecStatsFromLogs();
+        renderLiveProgress();
     });
     
     testRunEventSource.onerror = (err) => {
@@ -1256,30 +1276,105 @@ function startConsoleOutputSSE() {
 async function syncExecStatsFromLogs() {
     if (!state.configPath || state.selectedTests.size === 0) return;
     
-    const role = document.querySelector('#analytics-role-selector .role-btn.active')?.getAttribute('data-role') || 'All';
-    const url = `/api/results?role=${role}&currentRunOnly=true&path=${encodeURIComponent(state.configPath)}`;
+    // Use All: results are filtered by the selected set below, and a run may
+    // mix AP and STA cases regardless of the analytics role selector.
+    const url = `/api/results?role=All&currentRunOnly=true&path=${encodeURIComponent(state.configPath)}`;
     
     const res = await apiFetch(url);
     if (!res || !res.results) return;
-    
+
     const selectedSet = state.selectedTests;
     let passCount = 0;
     let failCount = 0;
-    
+
+    // Per-case status for this run, used by the live progress view.
+    const map = {};
     res.results.forEach(item => {
-        if (selectedSet.has(item.case)) {
+        if (selectedSet.has(item.case) && (item.status === 'PASS' || item.status === 'FAIL')) {
+            map[item.case] = { status: item.status, logFolder: item.logFolder };
             if (item.status === 'PASS') passCount++;
-            else if (item.status === 'FAIL') failCount++;
+            else failCount++;
         }
     });
-    
+    state.runStatusMap = map;
+
     state.execStats.pass = passCount;
     state.execStats.fail = failCount;
-    
+
     document.getElementById('exec-stat-pass').innerText = passCount;
     document.getElementById('exec-stat-fail').innerText = failCount;
     updateProgressMetrics();
+    renderLiveProgress();
 }
+
+// ---- Live per-test-case progress (Execution tab) ----
+
+function setExecView(view) {
+    const list = document.getElementById('exec-checkbox-list');
+    const prog = document.getElementById('exec-live-progress');
+    const toggle = document.getElementById('exec-view-toggle');
+    const showProg = view === 'progress';
+    if (list) list.style.display = showProg ? 'none' : '';
+    if (prog) prog.style.display = showProg ? '' : 'none';
+    if (toggle) {
+        toggle.querySelectorAll('.view-btn').forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-view') === view));
+    }
+}
+
+function renderLiveProgress() {
+    const container = document.getElementById('exec-live-progress');
+    if (!container) return;
+
+    const order = (state.runOrder && state.runOrder.length)
+        ? state.runOrder
+        : Array.from(state.selectedTests);
+    const statusMap = state.runStatusMap || {};
+
+    if (order.length === 0) {
+        container.innerHTML = '<div class="text-muted text-center py-5">No active run.</div>';
+        return;
+    }
+
+    // While running, the first not-yet-completed case (in run order) is the
+    // one currently executing (WTS runs the group sequentially).
+    let runningCase = null;
+    if (state.execRunning) {
+        runningCase = order.find(tc => !statusMap[tc]) || null;
+    }
+
+    container.innerHTML = '';
+    order.forEach(tc => {
+        const st = statusMap[tc];
+        let cls, label, icon;
+        if (st && st.status === 'PASS') { cls = 'pass'; label = 'PASS'; icon = 'check'; }
+        else if (st && st.status === 'FAIL') { cls = 'fail'; label = 'FAIL'; icon = 'x'; }
+        else if (tc === runningCase) { cls = 'running'; label = 'RUNNING'; icon = 'loader-2'; }
+        else { cls = 'pending'; label = 'PENDING'; icon = 'clock'; }
+
+        const row = document.createElement('div');
+        row.className = `progress-item ${cls}`;
+        row.innerHTML = `
+            <span class="progress-item-name">${esc(tc)}</span>
+            <span class="progress-badge ${cls}">
+                <i data-lucide="${icon}" class="${cls === 'running' ? 'icon-spin' : ''}" style="width:12px;height:12px;"></i>
+                <span>${label}</span>
+            </span>
+        `;
+        if (st && st.logFolder) {
+            row.classList.add('clickable');
+            row.title = 'Open log';
+            row.addEventListener('click', () => openLogForResult(tc, st.logFolder));
+        }
+        container.appendChild(row);
+    });
+    lucide.createIcons();
+}
+
+// View toggle buttons (Selection / Progress)
+document.querySelectorAll('#exec-view-toggle .view-btn').forEach(btn => {
+    btn.addEventListener('click', () => setExecView(btn.getAttribute('data-view')));
+});
 
 function appendTerminalLine(text, customClass = '') {
     const term = document.getElementById('terminal-output');
