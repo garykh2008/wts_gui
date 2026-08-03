@@ -2986,6 +2986,12 @@ const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+<dxfs count="4">
+<dxf><font><color rgb="FF006100"/></font><fill><patternFill><bgColor rgb="FFC6EFCE"/></patternFill></fill></dxf>
+<dxf><font><color rgb="FF9C0006"/></font><fill><patternFill><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf>
+<dxf><font><color rgb="FF9C5700"/></font><fill><patternFill><bgColor rgb="FFFFEB9C"/></patternFill></fill></dxf>
+<dxf><font><color rgb="FF5B21B6"/></font><fill><patternFill><bgColor rgb="FFE9D5FF"/></patternFill></fill></dxf>
+</dxfs>
 </styleSheet>`;
 
 // Build a styled test-case × vendor matrix workbook and trigger a download.
@@ -3091,6 +3097,28 @@ function downloadVendorMatrixXlsx(vendors, rows, summary, meta, filename) {
     vendors.forEach((v, i) => merges.push(`${xlsxCol(statusIdx(i))}3:${xlsxCol(commentIdx(i))}3`));
     const mergeXml = merges.map(m => `<mergeCell ref="${m}"/>`).join('');
 
+    // All Status cells, e.g. "B5:B7 D5:D7", for the dropdown + color rules.
+    const statusSqref = vendors.map((v, i) => {
+        const c = xlsxCol(statusIdx(i));
+        return `${c}${firstDataRow}:${c}${dataLastRow}`;
+    }).join(' ');
+
+    // Color each status via conditional formatting so manual edits recolor
+    // automatically. dxfIds: 0 PASS(green) 1 FAIL(red) 2 AP ISSUE(amber) 3 SCRIPT ISSUE(purple).
+    const cfXml = `<conditionalFormatting sqref="${statusSqref}">
+<cfRule type="cellIs" dxfId="0" priority="1" operator="equal"><formula>"PASS"</formula></cfRule>
+<cfRule type="cellIs" dxfId="1" priority="2" operator="equal"><formula>"FAIL"</formula></cfRule>
+<cfRule type="cellIs" dxfId="2" priority="3" operator="equal"><formula>"AP ISSUE"</formula></cfRule>
+<cfRule type="cellIs" dxfId="3" priority="4" operator="equal"><formula>"SCRIPT ISSUE"</formula></cfRule>
+</conditionalFormatting>`;
+
+    // Dropdown (list validation) on every Status cell.
+    const dvXml = `<dataValidations count="1">
+<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="${statusSqref}">
+<formula1>"PASS,FAIL,AP ISSUE,SCRIPT ISSUE"</formula1>
+</dataValidation>
+</dataValidations>`;
+
     const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <dimension ref="A1:${lastColL}${lastRow}"/>
@@ -3103,6 +3131,8 @@ function downloadVendorMatrixXlsx(vendors, rows, summary, meta, filename) {
 <sheetData>${sheetRows.join('')}</sheetData>
 <autoFilter ref="A4:${lastColL}${dataLastRow}"/>
 <mergeCells count="${merges.length}">${mergeXml}</mergeCells>
+${cfXml}
+${dvXml}
 </worksheet>`;
 
     const enc = new TextEncoder();
