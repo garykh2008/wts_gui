@@ -2972,7 +2972,7 @@ const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <border><left style="thin"><color rgb="FFD1D5DB"/></left><right style="thin"><color rgb="FFD1D5DB"/></right><top style="thin"><color rgb="FFD1D5DB"/></top><bottom style="thin"><color rgb="FFD1D5DB"/></bottom><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="10">
+<cellXfs count="11">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
@@ -2983,38 +2983,61 @@ const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
 <xf numFmtId="0" fontId="1" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
 <xf numFmtId="0" fontId="1" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 
 // Build a styled test-case × vendor matrix workbook and trigger a download.
+// Each vendor gets two columns: a colored Status cell and an (empty) Comment
+// cell for the reviewer to fill in analysis after generation.
 // vendors: string[]; rows: [{case, cells:{vendor:{status}}}]; summary: {vendor:{pass,fail,rate}}
 function downloadVendorMatrixXlsx(vendors, rows, summary, meta, filename) {
-    const lastColL = xlsxCol(vendors.length);
+    // 0-based column indexes. A(0)=Test Case; then per vendor i:
+    // status at 1+2i, comment at 2+2i.
+    const statusIdx = i => 1 + 2 * i;
+    const commentIdx = i => 2 + 2 * i;
+    const lastColL = xlsxCol(2 * vendors.length);
+
+    // Small cell builders.
+    const sCell = (col, row, s, text) => `<c r="${xlsxCol(col)}${row}" s="${s}" t="inlineStr"><is><t>${xlsxEsc(text)}</t></is></c>`;
+    const nCell = (col, row, s, num) => `<c r="${xlsxCol(col)}${row}" s="${s}"><v>${num}</v></c>`;
+    const eCell = (col, row, s) => `<c r="${xlsxCol(col)}${row}" s="${s}"/>`;
+
     const sheetRows = [];
 
-    sheetRows.push(`<row r="1" ht="24" customHeight="1"><c r="A1" s="6" t="inlineStr"><is><t>${xlsxEsc(meta.title)}</t></is></c></row>`);
-    sheetRows.push(`<row r="2" ht="16" customHeight="1"><c r="A2" s="7" t="inlineStr"><is><t>${xlsxEsc(meta.subtitle)}</t></is></c></row>`);
+    sheetRows.push(`<row r="1" ht="24" customHeight="1">${sCell(0, 1, 6, meta.title)}</row>`);
+    sheetRows.push(`<row r="2" ht="16" customHeight="1">${sCell(0, 2, 7, meta.subtitle)}</row>`);
 
-    let head = `<c r="A3" s="1" t="inlineStr"><is><t>Test Case</t></is></c>`;
+    // Row 3: vendor names, each merged across its Status + Comment columns.
+    let head3 = sCell(0, 3, 1, 'Test Case');
     vendors.forEach((v, i) => {
-        head += `<c r="${xlsxCol(i + 1)}3" s="1" t="inlineStr"><is><t>${xlsxEsc(v)}</t></is></c>`;
+        head3 += sCell(statusIdx(i), 3, 1, v);
+        head3 += eCell(commentIdx(i), 3, 1); // covered by merge; carries border
     });
-    sheetRows.push(`<row r="3" ht="30" customHeight="1">${head}</row>`);
+    sheetRows.push(`<row r="3" ht="26" customHeight="1">${head3}</row>`);
 
-    let r = 3;
+    // Row 4: Status / Comment sub-headers.
+    let head4 = eCell(0, 4, 1); // covered by the A3:A4 merge; carries border
+    vendors.forEach((v, i) => {
+        head4 += sCell(statusIdx(i), 4, 1, 'Status');
+        head4 += sCell(commentIdx(i), 4, 1, 'Comment');
+    });
+    sheetRows.push(`<row r="4" ht="18" customHeight="1">${head4}</row>`);
+
+    let r = 4;
+    const firstDataRow = r + 1;
     rows.forEach(row => {
         r++;
-        let cells = `<c r="A${r}" s="2" t="inlineStr"><is><t>${xlsxEsc(row.case)}</t></is></c>`;
+        let cells = sCell(0, r, 2, row.case);
         vendors.forEach((v, i) => {
-            const ref = `${xlsxCol(i + 1)}${r}`;
             const cell = row.cells[v];
             if (!cell) {
-                cells += `<c r="${ref}" s="5" t="inlineStr"><is><t>–</t></is></c>`;
+                cells += sCell(statusIdx(i), r, 5, '–');
             } else {
-                const s = cell.status === 'PASS' ? 3 : 4;
-                cells += `<c r="${ref}" s="${s}" t="inlineStr"><is><t>${xlsxEsc(cell.status)}</t></is></c>`;
+                cells += sCell(statusIdx(i), r, cell.status === 'PASS' ? 3 : 4, cell.status);
             }
+            cells += eCell(commentIdx(i), r, 10); // empty comment cell to fill in
         });
         sheetRows.push(`<row r="${r}">${cells}</row>`);
     });
@@ -3022,38 +3045,64 @@ function downloadVendorMatrixXlsx(vendors, rows, summary, meta, filename) {
 
     r++; sheetRows.push(`<row r="${r}"/>`); // spacer before the summary block
 
-    const summaryRow = (label, valueFor) => {
+    // The summary block uses live COUNTIF/TEXT formulas keyed off each vendor's
+    // Status column, so editing PASS/FAIL cells (or a "–") in Excel recalculates
+    // the counts and pass rate automatically. Cached <v> values keep the numbers
+    // correct even before the first recalculation.
+    const passRow = r + 1, failRow = r + 2, rateRow = r + 3;
+
+    // COUNTIF formula row (numeric result).
+    const countRow = (label, matchWord, cachedFor) => {
         r++;
-        let cells = `<c r="A${r}" s="8" t="inlineStr"><is><t>${xlsxEsc(label)}</t></is></c>`;
+        let cells = sCell(0, r, 8, label);
         vendors.forEach((v, i) => {
-            const ref = `${xlsxCol(i + 1)}${r}`;
-            const { val, num } = valueFor(v);
-            cells += num
-                ? `<c r="${ref}" s="9"><v>${val}</v></c>`
-                : `<c r="${ref}" s="9" t="inlineStr"><is><t>${xlsxEsc(val)}</t></is></c>`;
+            const colL = xlsxCol(statusIdx(i));
+            const range = `${colL}${firstDataRow}:${colL}${dataLastRow}`;
+            cells += `<c r="${colL}${r}" s="9"><f>COUNTIF(${range},"${matchWord}")</f><v>${cachedFor(v)}</v></c>`;
+            cells += eCell(commentIdx(i), r, 9);
         });
         sheetRows.push(`<row r="${r}">${cells}</row>`);
     };
-    summaryRow('PASS', v => ({ val: summary[v].pass, num: true }));
-    summaryRow('FAIL', v => ({ val: summary[v].fail, num: true }));
-    summaryRow('Pass Rate', v => ({ val: summary[v].rate, num: false }));
+    countRow('PASS', 'PASS', v => summary[v].pass);
+    countRow('FAIL', 'FAIL', v => summary[v].fail);
+
+    // Pass Rate row (string result: "50%" or "–" when the vendor has no runs).
+    r++;
+    let rateCells = sCell(0, r, 8, 'Pass Rate');
+    vendors.forEach((v, i) => {
+        const colL = xlsxCol(statusIdx(i));
+        const p = `${colL}${passRow}`, f = `${colL}${failRow}`;
+        const formula = `IF(${p}+${f}=0,"–",TEXT(${p}/(${p}+${f}),"0%"))`;
+        rateCells += `<c r="${colL}${r}" s="9" t="str"><f>${formula}</f><v>${xlsxEsc(summary[v].rate)}</v></c>`;
+        rateCells += eCell(commentIdx(i), r, 9);
+    });
+    sheetRows.push(`<row r="${r}">${rateCells}</row>`);
     const lastRow = r;
 
-    const vendorColsXml = vendors.length
-        ? `<col min="2" max="${vendors.length + 1}" width="16" customWidth="1"/>` : '';
+    // Per-column widths: narrow Status, wide Comment.
+    let colsXml = '<col min="1" max="1" width="40" customWidth="1"/>';
+    vendors.forEach((v, i) => {
+        colsXml += `<col min="${statusIdx(i) + 1}" max="${statusIdx(i) + 1}" width="14" customWidth="1"/>`;
+        colsXml += `<col min="${commentIdx(i) + 1}" max="${commentIdx(i) + 1}" width="34" customWidth="1"/>`;
+    });
+
+    // Merges: title, subtitle, Test Case (2 rows tall), each vendor header.
+    const merges = [`A1:${lastColL}1`, `A2:${lastColL}2`, 'A3:A4'];
+    vendors.forEach((v, i) => merges.push(`${xlsxCol(statusIdx(i))}3:${xlsxCol(commentIdx(i))}3`));
+    const mergeXml = merges.map(m => `<mergeCell ref="${m}"/>`).join('');
 
     const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <dimension ref="A1:${lastColL}${lastRow}"/>
 <sheetViews><sheetView showGridLines="0" tabSelected="1" workbookViewId="0">
-<pane xSplit="1" ySplit="3" topLeftCell="B4" activePane="bottomRight" state="frozen"/>
-<selection pane="bottomRight" activeCell="B4" sqref="B4"/>
+<pane xSplit="1" ySplit="4" topLeftCell="B5" activePane="bottomRight" state="frozen"/>
+<selection pane="bottomRight" activeCell="B5" sqref="B5"/>
 </sheetView></sheetViews>
 <sheetFormatPr defaultRowHeight="15"/>
-<cols><col min="1" max="1" width="40" customWidth="1"/>${vendorColsXml}</cols>
+<cols>${colsXml}</cols>
 <sheetData>${sheetRows.join('')}</sheetData>
-<autoFilter ref="A3:${lastColL}${dataLastRow}"/>
-<mergeCells count="2"><mergeCell ref="A1:${lastColL}1"/><mergeCell ref="A2:${lastColL}2"/></mergeCells>
+<autoFilter ref="A4:${lastColL}${dataLastRow}"/>
+<mergeCells count="${merges.length}">${mergeXml}</mergeCells>
 </worksheet>`;
 
     const enc = new TextEncoder();
@@ -3073,6 +3122,7 @@ function downloadVendorMatrixXlsx(vendors, rows, summary, meta, filename) {
         { name: 'xl/workbook.xml', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets><sheet name="Vendor Matrix" sheetId="1" r:id="rId1"/></sheets>
+<calcPr calcId="0" fullCalcOnLoad="1"/>
 </workbook>`) },
         { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
