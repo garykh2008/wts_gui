@@ -1813,37 +1813,23 @@ document.addEventListener('click', (e) => {
 document.getElementById('hide-nt-checkbox').addEventListener('change', () => scanAnalyticsData(true));
 document.getElementById('hide-excluded-checkbox').addEventListener('change', () => scanAnalyticsData(true));
 
-// Export CSV / Excel results
+// Export a styled .xlsx report showing each test case's result per vendor,
+// built from the currently visible scanned data (respects the hide toggles).
 document.getElementById('export-results-btn').addEventListener('click', () => {
-    // Build CSV from the currently visible scanned data (includes vendor/reason).
-    const rows = [
-        ["Test Case Name", "Final Status", "DUT", "Testbed", "Failure Reason", "Log Directory"]
-    ];
+    const { vendors, rows } = buildAnalyticsVendorMatrix(state.analyticsVisible);
 
-    (state.analyticsVisible || []).forEach(item => {
-        const dutStr = [item.dutCompany, item.dutModel].filter(Boolean).join(' ');
-        const tbStr = [item.testbedCompany, item.testbedModel].filter(Boolean).join(' ');
-        rows.push([
-            item.case || '',
-            item.status || '',
-            dutStr,
-            tbStr,
-            item.message || '',
-            item.logFolder || ''
-        ]);
-    });
+    if (!vendors.length || !rows.length) {
+        showNotification('No vendor results to export. Scanned runs need tms_<case>.json device data.', 'orange');
+        return;
+    }
 
-    // Format as CSV content
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF"
-        + rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(",")).join("\n");
-        
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "testing_report.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const roleBtn = document.querySelector('#analytics-role-selector .role-btn.active');
+    const roleLabel = roleBtn ? roleBtn.innerText.trim() : '';
+    const startDate = document.getElementById('analytics-date-input').value || 'all dates';
+
+    // Split 4.x / 5.x cases onto separate sheets.
+    const sheets = buildChapterSheets(vendors, rows, 'Testing Results \u2014 Vendor Comparison', roleLabel, startDate);
+    downloadVendorMatrixXlsx(sheets, 'testing_report.xlsx');
 });
 
 // ==================== Vendor Comparison Tab Logic ====================
@@ -1985,20 +1971,13 @@ function exportCompareMatrix() {
     const rows = state.compareRows || [];
     if (!vendors.length || !rows.length) return;
 
-    const csvRows = [["Test Case", ...vendors]];
-    rows.forEach(r => {
-        csvRows.push([r.case, ...vendors.map(v => (r.cells[v] ? r.cells[v].status : ''))]);
-    });
+    const roleBtn = document.querySelector('#compare-role-selector .role-btn.active');
+    const roleLabel = roleBtn ? roleBtn.innerText.trim() : '';
+    const startDate = document.getElementById('compare-date-input').value || 'all dates';
 
-    const csvContent = "data:text/csv;charset=utf-8,﻿"
-        + csvRows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(",")).join("\n");
-
-    const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute("download", "vendor_comparison.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Split 4.x / 5.x cases onto separate sheets.
+    const sheets = buildChapterSheets(vendors, rows, 'Cross-Vendor Comparison', roleLabel, startDate);
+    downloadVendorMatrixXlsx(sheets, 'vendor_comparison.xlsx');
 }
 
 document.getElementById('compare-scan-btn').addEventListener('click', scanCompareData);
@@ -2833,6 +2812,457 @@ if (maxBtn && logModal) {
         localStorage.setItem('log_maximized', isMax);
         lucide.createIcons();
     });
+}
+
+// ==================== Minimal dependency-free XLSX writer ====================
+// The app is packaged with PyInstaller and ships no spreadsheet library, and
+// every other export happens client-side, so we build a real (styled) .xlsx in
+// the browser: a ZIP (STORE method) of the handful of OOXML parts Excel needs.
+
+const XLSX_CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        t[n] = c >>> 0;
+    }
+    return t;
+})();
+
+function xlsxCrc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = XLSX_CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+// Pack [{name, data:Uint8Array}] into an uncompressed ZIP Blob.
+function xlsxZip(files) {
+    const now = new Date();
+    const dosTime = ((now.getHours() & 0x1f) << 11) | ((now.getMinutes() & 0x3f) << 5) | ((now.getSeconds() >> 1) & 0x1f);
+    const dosDate = (((now.getFullYear() - 1980) & 0x7f) << 9) | (((now.getMonth() + 1) & 0xf) << 5) | (now.getDate() & 0x1f);
+
+    const entries = files.map(f => ({
+        nameBytes: new TextEncoder().encode(f.name),
+        data: f.data,
+        crc: xlsxCrc32(f.data)
+    }));
+
+    const localParts = [];
+    const central = [];
+    let offset = 0;
+
+    entries.forEach(e => {
+        const lh = new Uint8Array(30 + e.nameBytes.length);
+        const dv = new DataView(lh.buffer);
+        dv.setUint32(0, 0x04034b50, true);
+        dv.setUint16(4, 20, true);        // version needed
+        dv.setUint16(8, 0, true);         // method: store
+        dv.setUint16(10, dosTime, true);
+        dv.setUint16(12, dosDate, true);
+        dv.setUint32(14, e.crc, true);
+        dv.setUint32(18, e.data.length, true);
+        dv.setUint32(22, e.data.length, true);
+        dv.setUint16(26, e.nameBytes.length, true);
+        lh.set(e.nameBytes, 30);
+        localParts.push(lh, e.data);
+        e.offset = offset;
+        offset += lh.length + e.data.length;
+    });
+
+    entries.forEach(e => {
+        const ch = new Uint8Array(46 + e.nameBytes.length);
+        const dv = new DataView(ch.buffer);
+        dv.setUint32(0, 0x02014b50, true);
+        dv.setUint16(4, 20, true);        // version made by
+        dv.setUint16(6, 20, true);        // version needed
+        dv.setUint16(10, 0, true);        // method: store
+        dv.setUint16(12, dosTime, true);
+        dv.setUint16(14, dosDate, true);
+        dv.setUint32(16, e.crc, true);
+        dv.setUint32(20, e.data.length, true);
+        dv.setUint32(24, e.data.length, true);
+        dv.setUint16(28, e.nameBytes.length, true);
+        dv.setUint32(42, e.offset, true);
+        ch.set(e.nameBytes, 46);
+        central.push(ch);
+    });
+
+    const centralSize = central.reduce((s, c) => s + c.length, 0);
+    const eocd = new Uint8Array(22);
+    const dv = new DataView(eocd.buffer);
+    dv.setUint32(0, 0x06054b50, true);
+    dv.setUint16(8, entries.length, true);
+    dv.setUint16(10, entries.length, true);
+    dv.setUint32(12, centralSize, true);
+    dv.setUint32(16, offset, true);
+
+    return new Blob([...localParts, ...central, eocd], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+}
+
+// 0-based column index -> spreadsheet column letters (0 -> A, 26 -> AA).
+function xlsxCol(n) {
+    let s = '';
+    n += 1;
+    while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+    return s;
+}
+
+function xlsxEsc(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Style table shared by every sheet we generate.
+// Indices: 0 default · 1 header · 2 case · 3 PASS · 4 FAIL · 5 dash
+//          6 title · 7 subtitle · 8 summary-label · 9 summary-value
+const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="8">
+<font><sz val="11"/><name val="Calibri"/><color theme="1"/></font>
+<font><b/><sz val="11"/><name val="Calibri"/></font>
+<font><b/><sz val="11"/><name val="Calibri"/><color rgb="FFFFFFFF"/></font>
+<font><b/><sz val="16"/><name val="Calibri"/><color rgb="FF111827"/></font>
+<font><sz val="10"/><name val="Calibri"/><color rgb="FF6B7280"/></font>
+<font><b/><sz val="11"/><name val="Calibri"/><color rgb="FF006100"/></font>
+<font><b/><sz val="11"/><name val="Calibri"/><color rgb="FF9C0006"/></font>
+<font><sz val="11"/><name val="Calibri"/><color rgb="FF9CA3AF"/></font>
+</fonts>
+<fills count="6">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF1F2937"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFC6EFCE"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFFC7CE"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/></patternFill></fill>
+</fills>
+<borders count="2">
+<border><left/><right/><top/><bottom/><diagonal/></border>
+<border><left style="thin"><color rgb="FFD1D5DB"/></left><right style="thin"><color rgb="FFD1D5DB"/></right><top style="thin"><color rgb="FFD1D5DB"/></top><bottom style="thin"><color rgb="FFD1D5DB"/></bottom><diagonal/></border>
+</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="11">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="5" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="6" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="7" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="1" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="1" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+<dxfs count="4">
+<dxf><font><color rgb="FF006100"/></font><fill><patternFill><bgColor rgb="FFC6EFCE"/></patternFill></fill></dxf>
+<dxf><font><color rgb="FF9C0006"/></font><fill><patternFill><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf>
+<dxf><font><color rgb="FF9C5700"/></font><fill><patternFill><bgColor rgb="FFFFEB9C"/></patternFill></fill></dxf>
+<dxf><font><color rgb="FF5B21B6"/></font><fill><patternFill><bgColor rgb="FFE9D5FF"/></patternFill></fill></dxf>
+</dxfs>
+</styleSheet>`;
+
+// Build a styled test-case × vendor matrix workbook and trigger a download.
+// Build ONE styled test-case × vendor worksheet and return its XML string.
+// Each vendor gets two columns: a colored Status cell (dropdown + auto-color)
+// and an (empty) Comment cell for the reviewer to fill in analysis afterwards.
+// vendors: string[]; rows: [{case, cells:{vendor:{status}}}]; summary: {vendor:{pass,fail,rate}}
+function buildMatrixWorksheetXml(vendors, rows, summary, meta, tabSelected, hiddenVendors) {
+    // 0-based column indexes. A(0)=Test Case; then per vendor i:
+    // status at 1+2i, comment at 2+2i.
+    const statusIdx = i => 1 + 2 * i;
+    const commentIdx = i => 2 + 2 * i;
+    const lastColL = xlsxCol(2 * vendors.length);
+
+    // Small cell builders.
+    const sCell = (col, row, s, text) => `<c r="${xlsxCol(col)}${row}" s="${s}" t="inlineStr"><is><t>${xlsxEsc(text)}</t></is></c>`;
+    const nCell = (col, row, s, num) => `<c r="${xlsxCol(col)}${row}" s="${s}"><v>${num}</v></c>`;
+    const eCell = (col, row, s) => `<c r="${xlsxCol(col)}${row}" s="${s}"/>`;
+
+    const sheetRows = [];
+
+    sheetRows.push(`<row r="1" ht="24" customHeight="1">${sCell(0, 1, 6, meta.title)}</row>`);
+    sheetRows.push(`<row r="2" ht="16" customHeight="1">${sCell(0, 2, 7, meta.subtitle)}</row>`);
+
+    // Row 3: vendor names, each merged across its Status + Comment columns.
+    let head3 = sCell(0, 3, 1, 'Test Case');
+    vendors.forEach((v, i) => {
+        head3 += sCell(statusIdx(i), 3, 1, v);
+        head3 += eCell(commentIdx(i), 3, 1); // covered by merge; carries border
+    });
+    sheetRows.push(`<row r="3" ht="26" customHeight="1">${head3}</row>`);
+
+    // Row 4: Status / Comment sub-headers.
+    let head4 = eCell(0, 4, 1); // covered by the A3:A4 merge; carries border
+    vendors.forEach((v, i) => {
+        head4 += sCell(statusIdx(i), 4, 1, 'Status');
+        head4 += sCell(commentIdx(i), 4, 1, 'Comment');
+    });
+    sheetRows.push(`<row r="4" ht="18" customHeight="1">${head4}</row>`);
+
+    let r = 4;
+    const firstDataRow = r + 1;
+    rows.forEach(row => {
+        r++;
+        let cells = sCell(0, r, 2, row.case);
+        vendors.forEach((v, i) => {
+            const cell = row.cells[v];
+            if (!cell) {
+                cells += sCell(statusIdx(i), r, 5, '–');
+            } else {
+                cells += sCell(statusIdx(i), r, cell.status === 'PASS' ? 3 : 4, cell.status);
+            }
+            cells += eCell(commentIdx(i), r, 10); // empty comment cell to fill in
+        });
+        sheetRows.push(`<row r="${r}">${cells}</row>`);
+    });
+    const dataLastRow = r;
+
+    r++; sheetRows.push(`<row r="${r}"/>`); // spacer before the summary block
+
+    // The summary block uses live COUNTIF/TEXT formulas keyed off each vendor's
+    // Status column, so editing PASS/FAIL cells (or a "–") in Excel recalculates
+    // the counts and pass rate automatically. Cached <v> values keep the numbers
+    // correct even before the first recalculation.
+    const passRow = r + 1, failRow = r + 2, rateRow = r + 3;
+
+    // COUNTIF formula row (numeric result).
+    const countRow = (label, matchWord, cachedFor) => {
+        r++;
+        let cells = sCell(0, r, 8, label);
+        vendors.forEach((v, i) => {
+            const colL = xlsxCol(statusIdx(i));
+            const range = `${colL}${firstDataRow}:${colL}${dataLastRow}`;
+            cells += `<c r="${colL}${r}" s="9"><f>COUNTIF(${range},"${matchWord}")</f><v>${cachedFor(v)}</v></c>`;
+            cells += eCell(commentIdx(i), r, 9);
+        });
+        sheetRows.push(`<row r="${r}">${cells}</row>`);
+    };
+    countRow('PASS', 'PASS', v => summary[v].pass);
+    countRow('FAIL', 'FAIL', v => summary[v].fail);
+
+    // Pass Rate row (string result: "50%" or "–" when the vendor has no runs).
+    r++;
+    let rateCells = sCell(0, r, 8, 'Pass Rate');
+    vendors.forEach((v, i) => {
+        const colL = xlsxCol(statusIdx(i));
+        const p = `${colL}${passRow}`, f = `${colL}${failRow}`;
+        const formula = `IF(${p}+${f}=0,"–",TEXT(${p}/(${p}+${f}),"0%"))`;
+        rateCells += `<c r="${colL}${r}" s="9" t="str"><f>${formula}</f><v>${xlsxEsc(summary[v].rate)}</v></c>`;
+        rateCells += eCell(commentIdx(i), r, 9);
+    });
+    sheetRows.push(`<row r="${r}">${rateCells}</row>`);
+    const lastRow = r;
+
+    // Per-column widths: narrow Status, wide Comment. Vendors with no results
+    // in this sheet are hidden (still present in the file, so nothing is lost).
+    let colsXml = '<col min="1" max="1" width="40" customWidth="1"/>';
+    vendors.forEach((v, i) => {
+        const hide = (hiddenVendors && hiddenVendors.has(v)) ? ' hidden="1"' : '';
+        colsXml += `<col min="${statusIdx(i) + 1}" max="${statusIdx(i) + 1}" width="14" customWidth="1"${hide}/>`;
+        colsXml += `<col min="${commentIdx(i) + 1}" max="${commentIdx(i) + 1}" width="34" customWidth="1"${hide}/>`;
+    });
+
+    // Merges: title, subtitle, Test Case (2 rows tall), each vendor header.
+    const merges = [`A1:${lastColL}1`, `A2:${lastColL}2`, 'A3:A4'];
+    vendors.forEach((v, i) => merges.push(`${xlsxCol(statusIdx(i))}3:${xlsxCol(commentIdx(i))}3`));
+    const mergeXml = merges.map(m => `<mergeCell ref="${m}"/>`).join('');
+
+    // All Status cells, e.g. "B5:B7 D5:D7", for the dropdown + color rules.
+    const statusSqref = vendors.map((v, i) => {
+        const c = xlsxCol(statusIdx(i));
+        return `${c}${firstDataRow}:${c}${dataLastRow}`;
+    }).join(' ');
+
+    // Color each status via conditional formatting so manual edits recolor
+    // automatically. dxfIds: 0 PASS(green) 1 FAIL(red) 2 AP ISSUE(amber) 3 SCRIPT ISSUE(purple).
+    const cfXml = `<conditionalFormatting sqref="${statusSqref}">
+<cfRule type="cellIs" dxfId="0" priority="1" operator="equal"><formula>"PASS"</formula></cfRule>
+<cfRule type="cellIs" dxfId="1" priority="2" operator="equal"><formula>"FAIL"</formula></cfRule>
+<cfRule type="cellIs" dxfId="2" priority="3" operator="equal"><formula>"AP ISSUE"</formula></cfRule>
+<cfRule type="cellIs" dxfId="3" priority="4" operator="equal"><formula>"SCRIPT ISSUE"</formula></cfRule>
+</conditionalFormatting>`;
+
+    // Dropdown (list validation) on every Status cell.
+    const dvXml = `<dataValidations count="1">
+<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="${statusSqref}">
+<formula1>"PASS,FAIL,AP ISSUE,SCRIPT ISSUE"</formula1>
+</dataValidation>
+</dataValidations>`;
+
+    const tab = tabSelected ? ' tabSelected="1"' : '';
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<dimension ref="A1:${lastColL}${lastRow}"/>
+<sheetViews><sheetView showGridLines="0"${tab} workbookViewId="0">
+<pane xSplit="1" ySplit="4" topLeftCell="B5" activePane="bottomRight" state="frozen"/>
+<selection pane="bottomRight" activeCell="B5" sqref="B5"/>
+</sheetView></sheetViews>
+<sheetFormatPr defaultRowHeight="15"/>
+<cols>${colsXml}</cols>
+<sheetData>${sheetRows.join('')}</sheetData>
+<autoFilter ref="A4:${lastColL}${dataLastRow}"/>
+<mergeCells count="${merges.length}">${mergeXml}</mergeCells>
+${cfXml}
+${dvXml}
+</worksheet>`;
+}
+
+// Package one or more matrix worksheets into an .xlsx and trigger a download.
+// sheets: [{name, title, subtitle, vendors, rows, summary}]
+function downloadVendorMatrixXlsx(sheets, filename) {
+    const enc = new TextEncoder();
+
+    const worksheetFiles = sheets.map((sh, i) => ({
+        name: `xl/worksheets/sheet${i + 1}.xml`,
+        data: enc.encode(buildMatrixWorksheetXml(
+            sh.vendors, sh.rows, sh.summary, { title: sh.title, subtitle: sh.subtitle }, i === 0, sh.hiddenVendors))
+    }));
+
+    const sheetsXml = sheets.map((sh, i) =>
+        `<sheet name="${xlsxEsc(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
+    const worksheetRelsXml = sheets.map((sh, i) =>
+        `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('');
+    const stylesRid = sheets.length + 1;
+    const ctOverridesXml = sheets.map((sh, i) =>
+        `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
+
+    const files = [
+        { name: '[Content_Types].xml', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+${ctOverridesXml}
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`) },
+        { name: '_rels/.rels', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`) },
+        { name: 'xl/workbook.xml', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets>${sheetsXml}</sheets>
+<calcPr calcId="0" fullCalcOnLoad="1"/>
+</workbook>`) },
+        { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${worksheetRelsXml}
+<Relationship Id="rId${stylesRid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`) },
+        { name: 'xl/styles.xml', data: enc.encode(XLSX_STYLES) },
+        ...worksheetFiles
+    ];
+
+    const blob = xlsxZip(files);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Compute per-vendor PASS/FAIL tallies + pass rate for a set of matrix rows.
+function computeVendorSummary(vendors, rows) {
+    const summary = {};
+    vendors.forEach(v => (summary[v] = { pass: 0, fail: 0, rate: '–' }));
+    rows.forEach(row => vendors.forEach(v => {
+        const c = row.cells[v];
+        if (!c) return;
+        if (c.status === 'PASS') summary[v].pass++;
+        else if (c.status === 'FAIL') summary[v].fail++;
+    }));
+    vendors.forEach(v => {
+        const tot = summary[v].pass + summary[v].fail;
+        summary[v].rate = tot ? Math.round((summary[v].pass / tot) * 100) + '%' : '–';
+    });
+    return summary;
+}
+
+// Split a full matrix into per-chapter sheet specs: 4.x (AP) and 5.x (STA)
+// each get their own sheet, keeping only the vendors that appear in that
+// chapter and recomputing that sheet's summary. Empty chapters are dropped.
+function splitMatrixByChapter(vendors, rows) {
+    const chapterOf = (caseName) => {
+        const suffix = String(caseName).split('-').pop();
+        if (suffix.startsWith('4.')) return { key: 'ch4', name: 'Ch4 (AP)' };
+        if (suffix.startsWith('5.')) return { key: 'ch5', name: 'Ch5 (STA)' };
+        return { key: 'other', name: 'Other' };
+    };
+    const order = ['ch4', 'ch5', 'other'];
+    const groups = {};
+    rows.forEach(row => {
+        const ch = chapterOf(row.case);
+        (groups[ch.key] || (groups[ch.key] = { name: ch.name, rows: [] })).rows.push(row);
+    });
+    return order.filter(k => groups[k]).map(k => {
+        const grp = groups[k];
+        // Keep every vendor as a column (so nothing is dropped from the export),
+        // but hide the ones with no result in this chapter.
+        const present = vendors.filter(v => grp.rows.some(r => r.cells[v]));
+        const hiddenVendors = new Set(vendors.filter(v => !present.includes(v)));
+        return {
+            name: grp.name,
+            vendors: vendors.slice(),
+            rows: grp.rows,
+            summary: computeVendorSummary(vendors, grp.rows),
+            hiddenVendors,
+            shownVendorCount: present.length
+        };
+    });
+}
+
+// Build the per-chapter sheet specs (with title/subtitle banners) that
+// downloadVendorMatrixXlsx expects, from a full (vendors, rows) matrix.
+function buildChapterSheets(vendors, rows, title, roleLabel, startDate) {
+    const stamp = new Date().toLocaleString();
+    return splitMatrixByChapter(vendors, rows).map(part => {
+        const hiddenCount = part.vendors.length - part.shownVendorCount;
+        const vendorText = `${part.shownVendorCount} vendors` + (hiddenCount ? ` (+${hiddenCount} hidden)` : '');
+        return {
+            name: part.name,
+            title,
+            subtitle: [
+                roleLabel && `Role: ${roleLabel}`,
+                `Since: ${startDate}`,
+                `${part.rows.length} test cases × ${vendorText}`,
+                `Generated ${stamp}`
+            ].filter(Boolean).join('    •    '),
+            vendors: part.vendors,
+            rows: part.rows,
+            summary: part.summary,
+            hiddenVendors: part.hiddenVendors
+        };
+    });
+}
+
+// Collapse a flat list of scanned analytics items (each carrying per-run
+// history) into a test-case × vendor matrix, taking the latest PASS/FAIL run
+// per vendor. Mirrors the Cross-Vendor Comparison tab's logic.
+function buildAnalyticsVendorMatrix(items) {
+    const vendorKeys = new Set();
+    const rows = [];
+    (items || []).forEach(item => {
+        const cells = {};
+        (item.history || []).forEach(run => {
+            if (run.result !== 'PASS' && run.result !== 'FAIL') return;
+            const v = vendorForRun(item.case, run);
+            if (!v) return;
+            if (!(v.key in cells)) {
+                cells[v.key] = { status: run.result };
+                vendorKeys.add(v.key);
+            }
+        });
+        if (Object.keys(cells).length > 0) rows.push({ case: item.case, cells });
+    });
+
+    const vendors = Array.from(vendorKeys).sort();
+    return { vendors, rows, summary: computeVendorSummary(vendors, rows) };
 }
 
 // Start periodic heartbeat ping every 10 seconds to keep server alive
