@@ -105,6 +105,22 @@ def save_session():
     except Exception as e:
         logger.error(f"Failed to save session settings: {e}")
 
+def get_presets_dir():
+    d = os.path.join(DATA_DIR, "config_presets")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+def safe_preset_filename(name, presets):
+    """Derive a filesystem-safe, unique .cfg filename for a preset name."""
+    base = re.sub(r'[^A-Za-z0-9_-]+', '_', name).strip('_') or "preset"
+    existing = {p.get("file") for p in presets}
+    candidate = f"{base}.cfg"
+    i = 1
+    while candidate in existing:
+        candidate = f"{base}_{i}.cfg"
+        i += 1
+    return candidate
+
 # --- Configuration File Parsers ---
 
 def load_config_data(p):
@@ -1234,7 +1250,79 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                         response_data = {"success": True, "message": "Config saved successfully"}
                     except Exception as e:
                         response_data = {"error": f"Failed to save file: {str(e)}"}
-                        
+
+            elif path == "/api/config/presets/save":
+                # Snapshot the current AllInitConfig file's full contents under a name.
+                name = (body.get("name") or "").strip()
+                src_path = body.get("path", "")
+                if not name:
+                    response_data = {"error": "Preset name is required"}
+                elif not src_path or not os.path.exists(src_path):
+                    response_data = {"error": "Invalid configuration path"}
+                else:
+                    try:
+                        with open(src_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        presets = SESSION_SETTINGS.get("config_presets", [])
+                        existing = next((p for p in presets if p.get("name") == name), None)
+                        fname = existing["file"] if existing else safe_preset_filename(name, presets)
+                        with open(os.path.join(get_presets_dir(), fname), 'w', encoding='utf-8', newline='\n') as f:
+                            f.write(content)
+                        meta = {
+                            "name": name,
+                            "file": fname,
+                            "sourcePath": src_path,
+                            "savedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                        if existing:
+                            existing.update(meta)
+                        else:
+                            presets.append(meta)
+                        SESSION_SETTINGS["config_presets"] = presets
+                        save_session()
+                        response_data = {"success": True, "presets": presets}
+                    except Exception as e:
+                        response_data = {"error": str(e)}
+
+            elif path == "/api/config/presets/apply":
+                # Overwrite the target config file with a saved snapshot.
+                name = (body.get("name") or "").strip()
+                target = body.get("targetPath", "")
+                presets = SESSION_SETTINGS.get("config_presets", [])
+                meta = next((p for p in presets if p.get("name") == name), None)
+                if not meta:
+                    response_data = {"error": "Preset not found"}
+                elif not target:
+                    response_data = {"error": "No target configuration file is loaded"}
+                else:
+                    try:
+                        fpath = os.path.join(get_presets_dir(), os.path.basename(meta.get("file", "")))
+                        with open(fpath, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        with open(target, 'w', encoding='utf-8', newline='\n') as f:
+                            f.write(content)
+                        response_data = {"success": True, "message": f"Applied preset '{name}' to {target}"}
+                    except Exception as e:
+                        response_data = {"error": str(e)}
+
+            elif path == "/api/config/presets/delete":
+                name = (body.get("name") or "").strip()
+                presets = SESSION_SETTINGS.get("config_presets", [])
+                meta = next((p for p in presets if p.get("name") == name), None)
+                if not meta:
+                    response_data = {"error": "Preset not found"}
+                else:
+                    try:
+                        fpath = os.path.join(get_presets_dir(), os.path.basename(meta.get("file", "")))
+                        if os.path.exists(fpath):
+                            os.remove(fpath)
+                    except Exception:
+                        pass
+                    presets = [p for p in presets if p.get("name") != name]
+                    SESSION_SETTINGS["config_presets"] = presets
+                    save_session()
+                    response_data = {"success": True, "presets": presets}
+
             elif path == "/api/config/toggle-device":
                 cfg_path = body.get("path", "")
                 idx = body.get("index")

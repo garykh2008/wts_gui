@@ -308,6 +308,36 @@ a {
     gap: 1rem;
 }
 
+.preset-group {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.preset-select {
+    background-color: rgba(15, 23, 42, 0.3);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    max-width: 200px;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.preset-select:focus {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.preset-select option {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
 .status-indicator {
     display: flex;
     align-items: center;

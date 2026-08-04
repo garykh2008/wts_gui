@@ -74,6 +74,20 @@
                     </div>
                 </div>
                 <div class="header-right">
+                    <div class="preset-group" title="Quickly switch between saved config snapshots">
+                        <select id="config-preset-select" class="preset-select" title="Saved config presets">
+                            <option value="">-- Config Presets --</option>
+                        </select>
+                        <button class="btn btn-secondary icon-only" id="apply-preset-btn" title="Apply selected preset (overwrites the current config file)" disabled>
+                            <i data-lucide="check"></i>
+                        </button>
+                        <button class="btn btn-secondary icon-only" id="save-preset-btn" title="Save current config as a preset" disabled>
+                            <i data-lucide="save"></i>
+                        </button>
+                        <button class="btn btn-secondary icon-only" id="delete-preset-btn" title="Delete selected preset" disabled>
+                            <i data-lucide="trash-2"></i>
+                        </button>
+                    </div>
                     <button class="btn btn-secondary" id="browse-config-btn">
                         <i data-lucide="folder"></i>
                         <span>Browse File</span>
