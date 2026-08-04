@@ -2969,7 +2969,7 @@ const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 // Each vendor gets two columns: a colored Status cell (dropdown + auto-color)
 // and an (empty) Comment cell for the reviewer to fill in analysis afterwards.
 // vendors: string[]; rows: [{case, cells:{vendor:{status}}}]; summary: {vendor:{pass,fail,rate}}
-function buildMatrixWorksheetXml(vendors, rows, summary, meta, tabSelected) {
+function buildMatrixWorksheetXml(vendors, rows, summary, meta, tabSelected, hiddenVendors) {
     // 0-based column indexes. A(0)=Test Case; then per vendor i:
     // status at 1+2i, comment at 2+2i.
     const statusIdx = i => 1 + 2 * i;
@@ -3056,11 +3056,13 @@ function buildMatrixWorksheetXml(vendors, rows, summary, meta, tabSelected) {
     sheetRows.push(`<row r="${r}">${rateCells}</row>`);
     const lastRow = r;
 
-    // Per-column widths: narrow Status, wide Comment.
+    // Per-column widths: narrow Status, wide Comment. Vendors with no results
+    // in this sheet are hidden (still present in the file, so nothing is lost).
     let colsXml = '<col min="1" max="1" width="40" customWidth="1"/>';
     vendors.forEach((v, i) => {
-        colsXml += `<col min="${statusIdx(i) + 1}" max="${statusIdx(i) + 1}" width="14" customWidth="1"/>`;
-        colsXml += `<col min="${commentIdx(i) + 1}" max="${commentIdx(i) + 1}" width="34" customWidth="1"/>`;
+        const hide = (hiddenVendors && hiddenVendors.has(v)) ? ' hidden="1"' : '';
+        colsXml += `<col min="${statusIdx(i) + 1}" max="${statusIdx(i) + 1}" width="14" customWidth="1"${hide}/>`;
+        colsXml += `<col min="${commentIdx(i) + 1}" max="${commentIdx(i) + 1}" width="34" customWidth="1"${hide}/>`;
     });
 
     // Merges: title, subtitle, Test Case (2 rows tall), each vendor header.
@@ -3116,7 +3118,7 @@ function downloadVendorMatrixXlsx(sheets, filename) {
     const worksheetFiles = sheets.map((sh, i) => ({
         name: `xl/worksheets/sheet${i + 1}.xml`,
         data: enc.encode(buildMatrixWorksheetXml(
-            sh.vendors, sh.rows, sh.summary, { title: sh.title, subtitle: sh.subtitle }, i === 0))
+            sh.vendors, sh.rows, sh.summary, { title: sh.title, subtitle: sh.subtitle }, i === 0, sh.hiddenVendors))
     }));
 
     const sheetsXml = sheets.map((sh, i) =>
@@ -3200,8 +3202,18 @@ function splitMatrixByChapter(vendors, rows) {
     });
     return order.filter(k => groups[k]).map(k => {
         const grp = groups[k];
-        const gv = vendors.filter(v => grp.rows.some(r => r.cells[v]));
-        return { name: grp.name, vendors: gv, rows: grp.rows, summary: computeVendorSummary(gv, grp.rows) };
+        // Keep every vendor as a column (so nothing is dropped from the export),
+        // but hide the ones with no result in this chapter.
+        const present = vendors.filter(v => grp.rows.some(r => r.cells[v]));
+        const hiddenVendors = new Set(vendors.filter(v => !present.includes(v)));
+        return {
+            name: grp.name,
+            vendors: vendors.slice(),
+            rows: grp.rows,
+            summary: computeVendorSummary(vendors, grp.rows),
+            hiddenVendors,
+            shownVendorCount: present.length
+        };
     });
 }
 
@@ -3209,19 +3221,24 @@ function splitMatrixByChapter(vendors, rows) {
 // downloadVendorMatrixXlsx expects, from a full (vendors, rows) matrix.
 function buildChapterSheets(vendors, rows, title, roleLabel, startDate) {
     const stamp = new Date().toLocaleString();
-    return splitMatrixByChapter(vendors, rows).map(part => ({
-        name: part.name,
-        title,
-        subtitle: [
-            roleLabel && `Role: ${roleLabel}`,
-            `Since: ${startDate}`,
-            `${part.rows.length} test cases × ${part.vendors.length} vendors`,
-            `Generated ${stamp}`
-        ].filter(Boolean).join('    •    '),
-        vendors: part.vendors,
-        rows: part.rows,
-        summary: part.summary
-    }));
+    return splitMatrixByChapter(vendors, rows).map(part => {
+        const hiddenCount = part.vendors.length - part.shownVendorCount;
+        const vendorText = `${part.shownVendorCount} vendors` + (hiddenCount ? ` (+${hiddenCount} hidden)` : '');
+        return {
+            name: part.name,
+            title,
+            subtitle: [
+                roleLabel && `Role: ${roleLabel}`,
+                `Since: ${startDate}`,
+                `${part.rows.length} test cases × ${vendorText}`,
+                `Generated ${stamp}`
+            ].filter(Boolean).join('    •    '),
+            vendors: part.vendors,
+            rows: part.rows,
+            summary: part.summary,
+            hiddenVendors: part.hiddenVendors
+        };
+    });
 }
 
 // Collapse a flat list of scanned analytics items (each carrying per-run
