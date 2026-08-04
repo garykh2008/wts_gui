@@ -873,7 +873,15 @@ function updateTestExecutionChecklist() {
     const activeRole = document.querySelector('.role-selector .role-btn.active').getAttribute('data-role');
     const container = document.getElementById('exec-checkbox-list');
     container.innerHTML = '';
-    
+
+    // Drop any selections that are no longer part of the loaded test suite, so
+    // stale picks can't linger invisibly after the config / test-suite changes
+    // (mirrors restoreSelectionState's validity rule).
+    if (state.xmlTestCases && state.xmlTestCases.length) {
+        const suite = new Set(state.xmlTestCases);
+        state.selectedTests.forEach(tc => { if (!suite.has(tc)) state.selectedTests.delete(tc); });
+    }
+
     // Parse ignore rules
     // Find disabled devices in configuration (disabled only if all of its IP configurations are commented out)
     const allDeviceNames = new Set(state.devices.map(d => d.name.replace('_ap', '').replace('_sta', '')));
@@ -1088,9 +1096,13 @@ document.getElementById('exec-select-all').addEventListener('click', () => {
     updateExecStats();
 });
 document.getElementById('exec-clear-all').addEventListener('click', () => {
+    // Clear the ENTIRE selection, not just the visible checkboxes. Items hidden
+    // by the current role / filters / device settings (e.g. ch4 cases left over
+    // after switching to ch5) would otherwise linger invisibly and could never
+    // be unchecked or cleared.
+    state.selectedTests.clear();
     document.querySelectorAll('#exec-checkbox-list .test-checkbox').forEach(cb => {
         cb.checked = false;
-        state.selectedTests.delete(cb.getAttribute('data-test'));
     });
     updateExecStats();
 });
