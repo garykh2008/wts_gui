@@ -8,6 +8,7 @@ if (typeof lucide === 'undefined') {
 // Global State
 const state = {
     configPath: '',
+    configPresets: [],
     configParams: [],
     devices: [],
     xmlTestCases: [],
@@ -276,6 +277,10 @@ async function checkBackendStatus() {
             }
         }
 
+        // Load saved config presets into the quick-switch dropdown.
+        state.configPresets = (res.settings && res.settings.config_presets) || [];
+        renderConfigPresets();
+
         // Vendor comparison spans multiple test days -> default to ~1 month back.
         const compareDateEl = document.getElementById('compare-date-input');
         if (compareDateEl && !compareDateEl.value) {
@@ -340,8 +345,109 @@ async function loadConfigDetails() {
         // Enable check alive button & trigger check
         document.getElementById('check-alive-btn').disabled = false;
         runCheckAlive();
+
+        updatePresetButtons();
     }
 }
+
+// ==================== Config Presets (quick switch) ====================
+
+// Populate the preset dropdown from state, preserving the current selection.
+function renderConfigPresets() {
+    const sel = document.getElementById('config-preset-select');
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">-- Config Presets --</option>';
+    (state.configPresets || []).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.name;
+        opt.textContent = p.name;
+        const meta = [p.sourcePath, p.savedAt && `saved ${p.savedAt}`].filter(Boolean).join('  •  ');
+        if (meta) opt.title = meta;
+        sel.appendChild(opt);
+    });
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+    updatePresetButtons();
+}
+
+// Enable/disable preset buttons based on the current config + selection.
+function updatePresetButtons() {
+    const sel = document.getElementById('config-preset-select');
+    if (!sel) return;
+    const name = sel.value;
+    document.getElementById('save-preset-btn').disabled = !state.configPath;
+    document.getElementById('apply-preset-btn').disabled = !state.configPath || !name;
+    document.getElementById('delete-preset-btn').disabled = !name;
+}
+
+// Save the current config file's contents as a named preset snapshot.
+async function savePresetFromCurrent() {
+    if (!state.configPath) {
+        showNotification('Load a config file first.', 'orange');
+        return;
+    }
+    const name = (prompt('Save current config as preset — enter a name:') || '').trim();
+    if (!name) return;
+    if ((state.configPresets || []).some(p => p.name === name)
+        && !confirm(`Preset "${name}" already exists. Overwrite it?`)) return;
+
+    const res = await apiFetch('/api/config/presets/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, path: state.configPath })
+    });
+    if (res && !res.error) {
+        state.configPresets = res.presets || [];
+        renderConfigPresets();
+        document.getElementById('config-preset-select').value = name;
+        updatePresetButtons();
+        showNotification(`Saved preset "${name}".`, 'green');
+    }
+}
+
+// Overwrite the currently loaded config file with a preset snapshot.
+async function applySelectedPreset() {
+    const name = document.getElementById('config-preset-select').value;
+    if (!name) return;
+    if (!state.configPath) {
+        showNotification('Load a target config file first.', 'orange');
+        return;
+    }
+    if (!confirm(`Apply preset "${name}"?\n\nThis overwrites the current config file:\n${state.configPath}`)) return;
+
+    const res = await apiFetch('/api/config/presets/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, targetPath: state.configPath })
+    });
+    if (res && !res.error) {
+        await loadConfigDetails();
+        await loadXmlSpecs();
+        showNotification(`Applied preset "${name}".`, 'green');
+    }
+}
+
+async function deleteSelectedPreset() {
+    const name = document.getElementById('config-preset-select').value;
+    if (!name) return;
+    if (!confirm(`Delete preset "${name}"? This cannot be undone.`)) return;
+
+    const res = await apiFetch('/api/config/presets/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+    if (res && !res.error) {
+        state.configPresets = res.presets || [];
+        renderConfigPresets();
+        showNotification(`Deleted preset "${name}".`, 'green');
+    }
+}
+
+document.getElementById('config-preset-select').addEventListener('change', updatePresetButtons);
+document.getElementById('save-preset-btn').addEventListener('click', savePresetFromCurrent);
+document.getElementById('apply-preset-btn').addEventListener('click', applySelectedPreset);
+document.getElementById('delete-preset-btn').addEventListener('click', deleteSelectedPreset);
 
 function renderConfigParameters() {
     const searchVal = document.getElementById('config-search').value.toLowerCase();
@@ -2655,9 +2761,10 @@ function confirmFsFileSelection() {
     
     closeModal('file-browser-modal');
     showNotification(`Selected config path: ${state.configPath}`, 'green');
-    
+
     loadConfigDetails();
     loadXmlSpecs();
+    updatePresetButtons();
 }
 
 // Bind custom file browser modal events
