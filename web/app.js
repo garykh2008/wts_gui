@@ -1816,7 +1816,7 @@ document.getElementById('hide-excluded-checkbox').addEventListener('change', () 
 // Export a styled .xlsx report showing each test case's result per vendor,
 // built from the currently visible scanned data (respects the hide toggles).
 document.getElementById('export-results-btn').addEventListener('click', () => {
-    const { vendors, rows, summary } = buildAnalyticsVendorMatrix(state.analyticsVisible);
+    const { vendors, rows } = buildAnalyticsVendorMatrix(state.analyticsVisible);
 
     if (!vendors.length || !rows.length) {
         showNotification('No vendor results to export. Scanned runs need tms_<case>.json device data.', 'orange');
@@ -1827,17 +1827,9 @@ document.getElementById('export-results-btn').addEventListener('click', () => {
     const roleLabel = roleBtn ? roleBtn.innerText.trim() : '';
     const startDate = document.getElementById('analytics-date-input').value || 'all dates';
 
-    const meta = {
-        title: 'Testing Results \u2014 Vendor Comparison',
-        subtitle: [
-            roleLabel && `Role: ${roleLabel}`,
-            `Since: ${startDate}`,
-            `${rows.length} test cases \u00D7 ${vendors.length} vendors`,
-            `Generated ${new Date().toLocaleString()}`
-        ].filter(Boolean).join('    \u2022    ')
-    };
-
-    downloadVendorMatrixXlsx(vendors, rows, summary, meta, 'testing_report.xlsx');
+    // Split 4.x / 5.x cases onto separate sheets.
+    const sheets = buildChapterSheets(vendors, rows, 'Testing Results \u2014 Vendor Comparison', roleLabel, startDate);
+    downloadVendorMatrixXlsx(sheets, 'testing_report.xlsx');
 });
 
 // ==================== Vendor Comparison Tab Logic ====================
@@ -1979,35 +1971,13 @@ function exportCompareMatrix() {
     const rows = state.compareRows || [];
     if (!vendors.length || !rows.length) return;
 
-    // Per-vendor PASS/FAIL tallies + pass rate for the summary block.
-    const summary = {};
-    vendors.forEach(v => (summary[v] = { pass: 0, fail: 0, rate: '–' }));
-    rows.forEach(r => vendors.forEach(v => {
-        const c = r.cells[v];
-        if (!c) return;
-        if (c.status === 'PASS') summary[v].pass++;
-        else if (c.status === 'FAIL') summary[v].fail++;
-    }));
-    vendors.forEach(v => {
-        const tot = summary[v].pass + summary[v].fail;
-        summary[v].rate = tot ? Math.round((summary[v].pass / tot) * 100) + '%' : '–';
-    });
-
     const roleBtn = document.querySelector('#compare-role-selector .role-btn.active');
     const roleLabel = roleBtn ? roleBtn.innerText.trim() : '';
     const startDate = document.getElementById('compare-date-input').value || 'all dates';
 
-    const meta = {
-        title: 'Cross-Vendor Comparison',
-        subtitle: [
-            roleLabel && `Role: ${roleLabel}`,
-            `Since: ${startDate}`,
-            `${rows.length} test cases × ${vendors.length} vendors`,
-            `Generated ${new Date().toLocaleString()}`
-        ].filter(Boolean).join('    •    ')
-    };
-
-    downloadVendorMatrixXlsx(vendors, rows, summary, meta, 'vendor_comparison.xlsx');
+    // Split 4.x / 5.x cases onto separate sheets.
+    const sheets = buildChapterSheets(vendors, rows, 'Cross-Vendor Comparison', roleLabel, startDate);
+    downloadVendorMatrixXlsx(sheets, 'vendor_comparison.xlsx');
 }
 
 document.getElementById('compare-scan-btn').addEventListener('click', scanCompareData);
@@ -2995,10 +2965,11 @@ const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </styleSheet>`;
 
 // Build a styled test-case × vendor matrix workbook and trigger a download.
-// Each vendor gets two columns: a colored Status cell and an (empty) Comment
-// cell for the reviewer to fill in analysis after generation.
+// Build ONE styled test-case × vendor worksheet and return its XML string.
+// Each vendor gets two columns: a colored Status cell (dropdown + auto-color)
+// and an (empty) Comment cell for the reviewer to fill in analysis afterwards.
 // vendors: string[]; rows: [{case, cells:{vendor:{status}}}]; summary: {vendor:{pass,fail,rate}}
-function downloadVendorMatrixXlsx(vendors, rows, summary, meta, filename) {
+function buildMatrixWorksheetXml(vendors, rows, summary, meta, tabSelected) {
     // 0-based column indexes. A(0)=Test Case; then per vendor i:
     // status at 1+2i, comment at 2+2i.
     const statusIdx = i => 1 + 2 * i;
@@ -3119,10 +3090,11 @@ function downloadVendorMatrixXlsx(vendors, rows, summary, meta, filename) {
 </dataValidation>
 </dataValidations>`;
 
-    const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    const tab = tabSelected ? ' tabSelected="1"' : '';
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <dimension ref="A1:${lastColL}${lastRow}"/>
-<sheetViews><sheetView showGridLines="0" tabSelected="1" workbookViewId="0">
+<sheetViews><sheetView showGridLines="0"${tab} workbookViewId="0">
 <pane xSplit="1" ySplit="4" topLeftCell="B5" activePane="bottomRight" state="frozen"/>
 <selection pane="bottomRight" activeCell="B5" sqref="B5"/>
 </sheetView></sheetViews>
@@ -3134,15 +3106,34 @@ function downloadVendorMatrixXlsx(vendors, rows, summary, meta, filename) {
 ${cfXml}
 ${dvXml}
 </worksheet>`;
+}
 
+// Package one or more matrix worksheets into an .xlsx and trigger a download.
+// sheets: [{name, title, subtitle, vendors, rows, summary}]
+function downloadVendorMatrixXlsx(sheets, filename) {
     const enc = new TextEncoder();
+
+    const worksheetFiles = sheets.map((sh, i) => ({
+        name: `xl/worksheets/sheet${i + 1}.xml`,
+        data: enc.encode(buildMatrixWorksheetXml(
+            sh.vendors, sh.rows, sh.summary, { title: sh.title, subtitle: sh.subtitle }, i === 0))
+    }));
+
+    const sheetsXml = sheets.map((sh, i) =>
+        `<sheet name="${xlsxEsc(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
+    const worksheetRelsXml = sheets.map((sh, i) =>
+        `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('');
+    const stylesRid = sheets.length + 1;
+    const ctOverridesXml = sheets.map((sh, i) =>
+        `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
+
     const files = [
         { name: '[Content_Types].xml', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 <Default Extension="xml" ContentType="application/xml"/>
 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+${ctOverridesXml}
 <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>`) },
         { name: '_rels/.rels', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -3151,16 +3142,16 @@ ${dvXml}
 </Relationships>`) },
         { name: 'xl/workbook.xml', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets><sheet name="Vendor Matrix" sheetId="1" r:id="rId1"/></sheets>
+<sheets>${sheetsXml}</sheets>
 <calcPr calcId="0" fullCalcOnLoad="1"/>
 </workbook>`) },
         { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+${worksheetRelsXml}
+<Relationship Id="rId${stylesRid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`) },
         { name: 'xl/styles.xml', data: enc.encode(XLSX_STYLES) },
-        { name: 'xl/worksheets/sheet1.xml', data: enc.encode(sheet) }
+        ...worksheetFiles
     ];
 
     const blob = xlsxZip(files);
@@ -3172,6 +3163,65 @@ ${dvXml}
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Compute per-vendor PASS/FAIL tallies + pass rate for a set of matrix rows.
+function computeVendorSummary(vendors, rows) {
+    const summary = {};
+    vendors.forEach(v => (summary[v] = { pass: 0, fail: 0, rate: '–' }));
+    rows.forEach(row => vendors.forEach(v => {
+        const c = row.cells[v];
+        if (!c) return;
+        if (c.status === 'PASS') summary[v].pass++;
+        else if (c.status === 'FAIL') summary[v].fail++;
+    }));
+    vendors.forEach(v => {
+        const tot = summary[v].pass + summary[v].fail;
+        summary[v].rate = tot ? Math.round((summary[v].pass / tot) * 100) + '%' : '–';
+    });
+    return summary;
+}
+
+// Split a full matrix into per-chapter sheet specs: 4.x (AP) and 5.x (STA)
+// each get their own sheet, keeping only the vendors that appear in that
+// chapter and recomputing that sheet's summary. Empty chapters are dropped.
+function splitMatrixByChapter(vendors, rows) {
+    const chapterOf = (caseName) => {
+        const suffix = String(caseName).split('-').pop();
+        if (suffix.startsWith('4.')) return { key: 'ch4', name: 'Ch4 (AP)' };
+        if (suffix.startsWith('5.')) return { key: 'ch5', name: 'Ch5 (STA)' };
+        return { key: 'other', name: 'Other' };
+    };
+    const order = ['ch4', 'ch5', 'other'];
+    const groups = {};
+    rows.forEach(row => {
+        const ch = chapterOf(row.case);
+        (groups[ch.key] || (groups[ch.key] = { name: ch.name, rows: [] })).rows.push(row);
+    });
+    return order.filter(k => groups[k]).map(k => {
+        const grp = groups[k];
+        const gv = vendors.filter(v => grp.rows.some(r => r.cells[v]));
+        return { name: grp.name, vendors: gv, rows: grp.rows, summary: computeVendorSummary(gv, grp.rows) };
+    });
+}
+
+// Build the per-chapter sheet specs (with title/subtitle banners) that
+// downloadVendorMatrixXlsx expects, from a full (vendors, rows) matrix.
+function buildChapterSheets(vendors, rows, title, roleLabel, startDate) {
+    const stamp = new Date().toLocaleString();
+    return splitMatrixByChapter(vendors, rows).map(part => ({
+        name: part.name,
+        title,
+        subtitle: [
+            roleLabel && `Role: ${roleLabel}`,
+            `Since: ${startDate}`,
+            `${part.rows.length} test cases × ${part.vendors.length} vendors`,
+            `Generated ${stamp}`
+        ].filter(Boolean).join('    •    '),
+        vendors: part.vendors,
+        rows: part.rows,
+        summary: part.summary
+    }));
 }
 
 // Collapse a flat list of scanned analytics items (each carrying per-run
@@ -3195,20 +3245,7 @@ function buildAnalyticsVendorMatrix(items) {
     });
 
     const vendors = Array.from(vendorKeys).sort();
-    const summary = {};
-    vendors.forEach(v => (summary[v] = { pass: 0, fail: 0, rate: '–' }));
-    rows.forEach(row => vendors.forEach(v => {
-        const c = row.cells[v];
-        if (!c) return;
-        if (c.status === 'PASS') summary[v].pass++;
-        else if (c.status === 'FAIL') summary[v].fail++;
-    }));
-    vendors.forEach(v => {
-        const tot = summary[v].pass + summary[v].fail;
-        summary[v].rate = tot ? Math.round((summary[v].pass / tot) * 100) + '%' : '–';
-    });
-
-    return { vendors, rows, summary };
+    return { vendors, rows, summary: computeVendorSummary(vendors, rows) };
 }
 
 // Start periodic heartbeat ping every 10 seconds to keep server alive
