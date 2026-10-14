@@ -63,7 +63,7 @@ To run and test the rewritten version:
 2. The server will bind to a free port (defaulting to `8000`) and automatically launch your default web browser to:
    `http://127.0.0.1:8000/`
 3. Click **Browse File** in the top right to select your `AllInitConfig` file. You should see the native file selector popup.
-4. Modify any configurations or toggle device switches, then click **Commit Changes** to save.
+4. Modify any configurations or toggle device switches — changes are written straight to `AllInitConfig`, no save click needed.
 5. Head to the **Test Execution** tab, select test cases, and click **START TESTING**. The live output will stream in the console with real color formatting!
 6. Click **Scan Results** in **Analytics** to view statistics.
 7. Close the browser tab when finished. Check your system process list—the python server process will exit automatically within a minute.
@@ -108,7 +108,7 @@ We resolved several usability and backend issues to ensure a production-ready ex
 
 ### 9. Inline Comment/Uncomment in Config Editor (v3.5.3 Update)
 - **Problem**: The Config Editor could only edit parameter values. Commenting/uncommenting parameters required manual edits in the raw text file view.
-- **Solution**: Added inline toggle switch buttons (using Lucide `toggle-left`/`toggle-right` icons) in each parameter row in the Config Editor table. Clicking the toggle immediately updates the state and applies the `.row-commented` styling (strikethrough and dimmed opacity) inline. Clicking the global "Save Config" button commits the commented/uncommented status directly to the `AllInitConfig` file on disk.
+- **Solution**: Added inline toggle switch buttons (using Lucide `toggle-left`/`toggle-right` icons) in each parameter row in the Config Editor table. Clicking the toggle immediately updates the state and applies the `.row-commented` styling (strikethrough and dimmed opacity) inline. Clicking the toggle now commits the commented/uncommented status directly to the `AllInitConfig` file on disk. (The explicit "Save Config" button was removed in v3.6.2 — see item 17.)
 
 ### 10. Log Folder Compression & Bulk Download (v3.5.4 Update)
 - **Problem**: The HTML defined bulk actions for zipping and deleting log folders, but the JavaScript handlers were completely missing and the Python backend lacked a download routing handler to stream the zipped file back to the browser.
@@ -156,3 +156,10 @@ We resolved several usability and backend issues to ensure a production-ready ex
 - **Solution**: 
   - **Proximity Search First**: Updated the pairing matcher to check the lines immediately following (1 to 3 lines ahead or behind) the target line. Since the wireless IP parameter is always defined immediately next to the control agent entry, this connects the two lines correctly even if their IP values differ.
   - **IP Fallback**: Keeps the IP value match as a fallback search if the proximity check finds no match.
+
+### 17. Immediate-Apply Edits, Explicit Save Buttons Removed (v3.6.2 Update)
+- **Problem**: Config Editor and TMS Config edits were staged in memory and only written to disk when the user clicked "Save AllInitConfig" / "Save Config". Pending edits were easy to forget, and the two-step flow added friction for single-value tweaks.
+- **Solution**:
+  - **Auto-Commit**: Added `autoCommitConfig()` / `autoCommitTmsConfig()` in `web/app.js`. Every Apply (value field, IP/Port popup) and every comment toggle now writes the full parameter list to `AllInitConfig` / `TmsClient.conf` through the existing `/api/config/save` and `/api/tms-config/save` endpoints, then reports the result via notification.
+  - **Buttons Removed**: Deleted `save-config-btn` (Config Editor) and `save-tms-btn` (TMS Config) from `web/index.html` along with their handlers. `reload-config-btn` / `reload-tms-btn` remain as the only way to discard in-memory edits, and the Config Editor header now reads "Auto-Applied". Note there is no longer a manual retry path — if an auto-save fails, the edit exists only in memory until reload.
+  - **Shared Modal Handler Fix**: The value-edit modal is shared by both tables. Previously the TMS editor overrode `save-value-btn` via `.onclick` while the Config Editor had registered an `addEventListener`, so both handlers fired on every Apply. Replaced with a single `applyValueEdit()` that dispatches on a `valueEditTarget` flag, and removed the now-unnecessary `restoreDefaultSaveHandler()`.

@@ -44,7 +44,7 @@ This tool supports cross-platform execution, including **Windows (Native / WSL)*
     *   Open files in the system's default text editor or Wireshark.
 *   **Other Tools**:
     *   **MasterTestInfo Viewer**: Displays the detailed XML structure of test cases.
-    *   **TmsClient.conf Editor**: Edits TMS upload settings.
+    *   **TmsClient.conf Editor**: Edits TMS upload settings. Changes are applied to the file immediately.
 
 ---
 
@@ -56,7 +56,7 @@ This tool supports cross-platform execution, including **Windows (Native / WSL)*
 3.  **Modify Values**: Double-click on a "Value" field to edit it. IP/Port settings will open a dedicated pop-up window.
 4.  **Device Control**: Use the checkboxes in the top-right to quickly enable/disable AP or STA devices.
     *   *Note: Devices disabled here will automatically affect the filtering rules in the Test Execution tab, excluding related test cases.*
-5.  After making changes, click **Save AllInitConfig** to save the file.
+5.  Changes are written to the `AllInitConfig` file **immediately** — editing a value or toggling a device takes effect on disk right away. Use **Reload File** to discard your edits and re-read the file.
 
 ### 2. Test Execution (Running Tests)
 1.  **Filter Test Cases**: Use the Role (All/AP/STA) or Search fields to find specific test cases.

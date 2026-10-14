@@ -113,15 +113,11 @@
                             <div class="card" id="commit-changes-card">
                                 <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1.25rem;">
                                     <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                        <i data-lucide="save" style="color: var(--accent-color); width: 20px; height: 20px;"></i>
-                                        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600;">Commit Changes</h4>
-                                        <span class="text-muted text-xs-hide" style="font-size: 0.8rem;">(Save modifications back to AllInitConfig)</span>
+                                        <i data-lucide="zap" style="color: var(--accent-color); width: 20px; height: 20px;"></i>
+                                        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600;">Auto-Applied</h4>
+                                        <span class="text-muted text-xs-hide" style="font-size: 0.8rem;">(Edits are written to AllInitConfig immediately)</span>
                                     </div>
                                     <div style="display: flex; gap: 0.75rem;">
-                                        <button class="btn btn-primary" id="save-config-btn" disabled style="padding: 0.5rem 1rem; font-size: 0.85rem; height: auto; min-width: auto; width: auto;">
-                                            <i data-lucide="check-circle-2" style="width: 16px; height: 16px; margin-right: 0.35rem;"></i>
-                                            <span>Save AllInitConfig</span>
-                                        </button>
                                         <button class="btn btn-secondary" id="reload-config-btn" disabled style="padding: 0.5rem 1rem; font-size: 0.85rem; height: auto; min-width: auto; width: auto;">
                                             <i data-lucide="rotate-ccw" style="width: 16px; height: 16px; margin-right: 0.35rem;"></i>
                                             <span>Reload File</span>
@@ -643,10 +639,6 @@
                             <button class="btn btn-secondary" id="reload-tms-btn">
                                 <i data-lucide="rotate-ccw"></i>
                                 <span>Reload TmsClient.conf</span>
-                            </button>
-                            <button class="btn btn-primary ml-2" id="save-tms-btn">
-                                <i data-lucide="save"></i>
-                                <span>Save Config</span>
                             </button>
                             <button class="btn btn-secondary ml-2" id="open-tms-portal-btn">
                                 <i data-lucide="external-link"></i>

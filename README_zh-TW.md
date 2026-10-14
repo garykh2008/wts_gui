@@ -44,7 +44,7 @@ WTS GUI 是一個專為 **無線測試系統 (WTS)** 工具設計的圖形使用
     *   使用系統預設文字編輯器或 Wireshark 開啟檔案。
 *   **其他工具**:
     *   **MasterTestInfo Viewer**: 顯示測試案例的詳細 XML 結構。
-    *   **TmsClient.conf Editor**: 編輯 TMS 上傳設定。
+    *   **TmsClient.conf Editor**: 編輯 TMS 上傳設定。修改會立即套用至檔案。
 
 ---
 
@@ -56,7 +56,7 @@ WTS GUI 是一個專為 **無線測試系統 (WTS)** 工具設計的圖形使用
 3.  **Modify Values**: 雙擊 "**Value**" 欄位以進行編輯。**IP/Port** 設定將會開啟專用的彈出式視窗。
 4.  **Device Control**: 使用右上角的核取方塊快速啟用/禁用 **AP** 或 **STA** 裝置。
     *   *注意：在此禁用的裝置將自動影響「**Test Execution**」分頁中的篩選規則，排除相關的測試案例。*
-5.  修改完成後，點擊 **Save AllInitConfig** 以儲存檔案。
+5.  修改會**立即寫入** `AllInitConfig` 檔案 —— 編輯數值或切換裝置開關後即刻生效，無需再按儲存。若要放棄修改並重新讀取檔案，請按 **Reload File**。
 
 ### 2. **Test Execution** (執行測試)
 1.  **Filter Test Cases**: 使用 **Role** (全部/**AP**/**STA**) 或 **Search** 欄位來尋找特定的測試案例。

@@ -337,8 +337,7 @@ async function loadConfigDetails() {
         renderConfigParameters();
         renderDeviceToggles();
         
-        // Enable Save/Reload/Raw actions
-        document.getElementById('save-config-btn').disabled = false;
+        // Enable Reload/Raw actions (edits auto-save, so there is no Save button)
         document.getElementById('reload-config-btn').disabled = false;
         document.getElementById('view-raw-config-btn').disabled = false;
         
@@ -504,14 +503,14 @@ function renderConfigParameters() {
     
     // Wire up toggle comment buttons
     tbody.querySelectorAll('.toggle-comment-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const index = parseInt(btn.getAttribute('data-index'));
             const param = state.configParams.find(p => p.index === index);
             if (param) {
                 param.commented = !param.commented;
                 togglePairedParameterInState(param);
                 renderConfigParameters();
-                showNotification(`Parameter '${param.key}' is now ${param.commented ? 'commented out' : 'active'} in memory. Click Save Config to apply.`, 'blue');
+                await autoCommitConfig(`Parameter '${param.key}' is now ${param.commented ? 'commented out' : 'active'}`);
             }
         });
     });
@@ -726,12 +725,15 @@ document.querySelectorAll('.modal-close, [data-modal]').forEach(el => {
 });
 
 let currentEditingIndex = null;
+let valueEditTarget = 'config';
 
 function openConfigEditorModal(index) {
     currentEditingIndex = index;
     const param = state.configParams.find(p => p.index === index);
     if (!param) return;
-    
+
+    valueEditTarget = 'config';
+
     if (param.type === 'ip_port_pair') {
         // IP address and port fields
         let ip = '';
@@ -755,58 +757,112 @@ function openConfigEditorModal(index) {
     }
 }
 
+// Build the save payload for the currently loaded AllInitConfig.
+function configSaveBody() {
+    return JSON.stringify({
+        path: state.configPath,
+        parameters: state.configParams.map(p => ({
+            index: p.index,
+            value: p.value,
+            commented: p.commented
+        }))
+    });
+}
+
+// Config Editor edits apply immediately: every Apply / toggle writes the whole
+// parameter list back to AllInitConfig, so there is no separate commit step.
+// There is no manual save button either — on failure the edit stays pending in
+// memory and "Reload File" is the only way to resync.
+async function autoCommitConfig(what) {
+    if (!state.configPath) return false;
+
+    const res = await apiFetch('/api/config/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: configSaveBody()
+    });
+
+    if (res && res.success) {
+        showNotification(`${what} — saved to AllInitConfig.`, 'green');
+        return true;
+    }
+
+    showNotification(`Failed to save AllInitConfig! ${what} is only in memory — use "Reload File" to discard it.`, 'red');
+    return false;
+}
+
+// Same immediate-apply behaviour for the TMS Config table (TmsClient.conf).
+async function autoCommitTmsConfig(what) {
+    const res = await apiFetch('/api/tms-config/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            parameters: state.tmsParams.map(p => ({
+                index: p.index,
+                value: p.value
+            }))
+        })
+    });
+
+    if (res && res.success) {
+        showNotification(`${what} — saved to TmsClient.conf.`, 'green');
+        return true;
+    }
+
+    showNotification(`Failed to save TmsClient.conf! ${what} is only in memory — use "Reload TmsClient.conf" to discard it.`, 'red');
+    return false;
+}
+
 // Save connection modal settings
-document.getElementById('save-connection-btn').addEventListener('click', () => {
+document.getElementById('save-connection-btn').addEventListener('click', async () => {
     if (currentEditingIndex === null) return;
-    
+
     const ip = document.getElementById('conn-ip-input').value.trim();
     const port = document.getElementById('conn-port-input').value.trim();
-    
+
     if (!ip || !port) {
         showNotification('IP and Port cannot be empty!', 'orange');
         return;
     }
-    
-    const newValue = `ipaddr=${ip},port=${port}`;
-    state.configParams.find(p => p.index === currentEditingIndex).value = newValue;
-    
+
+    const param = state.configParams.find(p => p.index === currentEditingIndex);
+    if (!param) return;
+
+    param.value = `ipaddr=${ip},port=${port}`;
+
     renderConfigParameters();
     closeModal('edit-connection-modal');
-    showNotification('Parameter updated locally. Commit changes to save to file.', 'blue');
+    await autoCommitConfig(`Parameter '${param.key}' updated`);
 });
 
-// Save value modal settings
-document.getElementById('save-value-btn').addEventListener('click', () => {
+// Save value modal settings. The same modal serves both the Config Editor and
+// the TMS Config table, so dispatch on whichever table opened it.
+document.getElementById('save-value-btn').addEventListener('click', applyValueEdit);
+
+async function applyValueEdit() {
+    if (valueEditTarget === 'tms') {
+        const param = state.tmsParams.find(p => p.index === currentEditingTmsIndex);
+        if (!param) return;
+
+        param.value = document.getElementById('edit-value-input').value;
+
+        renderTmsTable();
+        closeModal('edit-value-modal');
+        await autoCommitTmsConfig(`Parameter '${param.key}' updated`);
+        return;
+    }
+
     if (currentEditingIndex === null) return;
-    
-    const val = document.getElementById('edit-value-input').value;
-    state.configParams.find(p => p.index === currentEditingIndex).value = val;
-    
+
+    const param = state.configParams.find(p => p.index === currentEditingIndex);
+    if (!param) return;
+
+    param.value = document.getElementById('edit-value-input').value;
+
     renderConfigParameters();
     closeModal('edit-value-modal');
-    showNotification('Parameter updated locally. Commit changes to save to file.', 'blue');
-});
-
-// Save AllInitConfig back to disk
-document.getElementById('save-config-btn').addEventListener('click', async () => {
-    const res = await apiFetch('/api/config/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            path: state.configPath,
-            parameters: state.configParams.map(p => ({
-                index: p.index,
-                value: p.value,
-                commented: p.commented
-            }))
-        })
-    });
-    
-    if (res && res.success) {
-        showNotification('Configuration saved successfully!', 'green');
-        await loadConfigDetails();
-    }
-});
+    await autoCommitConfig(`Parameter '${param.key}' updated`);
+}
 
 // Reload config
 document.getElementById('reload-config-btn').addEventListener('click', async () => {
@@ -2474,35 +2530,13 @@ function openTmsEditor(index) {
     currentEditingTmsIndex = index;
     const param = state.tmsParams.find(p => p.index === index);
     if (!param) return;
-    
+
     // We can reuse the value editing modal
+    valueEditTarget = 'tms';
     document.getElementById('edit-value-label').innerText = `Update Parameter: ${param.key}`;
     document.getElementById('edit-value-input').value = param.value;
-    
-    // Override save button handler temporarily
-    document.getElementById('save-value-btn').onclick = () => {
-        const val = document.getElementById('edit-value-input').value;
-        state.tmsParams.find(p => p.index === currentEditingTmsIndex).value = val;
-        renderTmsTable();
-        closeModal('edit-value-modal');
-        showNotification('Parameter updated locally. Click Save Config to save to file.', 'blue');
-        
-        // Restore default handler
-        restoreDefaultSaveHandler();
-    };
-    
-    openModal('edit-value-modal');
-}
 
-function restoreDefaultSaveHandler() {
-    document.getElementById('save-value-btn').onclick = () => {
-        if (currentEditingIndex === null) return;
-        const val = document.getElementById('edit-value-input').value;
-        state.configParams.find(p => p.index === currentEditingIndex).value = val;
-        renderConfigParameters();
-        closeModal('edit-value-modal');
-        showNotification('Parameter updated locally. Commit changes to save to file.', 'blue');
-    };
+    openModal('edit-value-modal');
 }
 
 // Toggle upload in TMS Config
@@ -2524,23 +2558,6 @@ document.getElementById('tms-upload-toggle').addEventListener('change', async (e
 document.getElementById('reload-tms-btn').addEventListener('click', async () => {
     await loadTmsConfig();
     showNotification('TMS Configuration reloaded.', 'blue');
-});
-
-document.getElementById('save-tms-btn').addEventListener('click', async () => {
-    const res = await apiFetch('/api/tms-config/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            parameters: state.tmsParams.map(p => ({
-                index: p.index,
-                value: p.value
-            }))
-        })
-    });
-    if (res && res.success) {
-        showNotification('TMS config saved successfully!', 'green');
-        await loadTmsConfig();
-    }
 });
 
 // ==================== TMS Portal Link Logic ====================
