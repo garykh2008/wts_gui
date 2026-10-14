@@ -47,6 +47,15 @@ CURRENT_RUN_BASELINE_FOLDERS = set()
 SETTINGS_FILE = "wts_gui.settings.json"
 SESSION_SETTINGS = {}
 
+# Keys /api/settings/save is allowed to write. Deliberately excludes
+# config_path and config_presets, which have dedicated endpoints and would be
+# corrupted by a generic write.
+EDITABLE_SETTINGS = {
+    "log_filter_date",
+    "result_filter_date",
+    "compare_filter_date",
+}
+
 import time
 import webbrowser
 
@@ -1036,8 +1045,14 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 # Returns latest status (PASS, FAIL, NT, Not Support) for each test case
                 role = query.get("role", ["All"])[0]
                 start_date_str = query.get("startDate", [""])[0]
+                # The Analytics tab and the Vendor Compare tab both scan through
+                # this endpoint, but they are separate filters. Remember each
+                # one under its own key so building a matrix no longer
+                # overwrites the date the user set for Analytics.
+                scope = query.get("scope", ["analytics"])[0]
                 if start_date_str:
-                    SESSION_SETTINGS["result_filter_date"] = start_date_str
+                    key = "compare_filter_date" if scope == "compare" else "result_filter_date"
+                    SESSION_SETTINGS[key] = start_date_str
                     save_session()
                 cfg_path = query.get("path", [""])[0]
                 
@@ -1647,6 +1662,29 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 else:
                     response_data = {"error": "No active test running"}
                     
+            elif path == "/api/settings/save":
+                # Persist individual UI preferences (filter dates, etc.) as soon
+                # as the user changes them, instead of only when a scan runs.
+                # Whitelisted: these are display preferences, and an unvetted
+                # write must not be able to clobber config_path / config_presets.
+                updates = body.get("settings", {})
+                if not isinstance(updates, dict):
+                    response_data = {"error": "settings must be an object"}
+                else:
+                    applied = {}
+                    for key, value in updates.items():
+                        if key not in EDITABLE_SETTINGS:
+                            continue
+                        # Filter dates are either "YYYY-MM-DD" or cleared.
+                        if key.endswith("_filter_date"):
+                            if value and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(value)):
+                                continue
+                            value = str(value) if value else ""
+                        SESSION_SETTINGS[key] = value
+                        applied[key] = value
+                    save_session()
+                    response_data = {"success": True, "applied": applied}
+
             elif path == "/api/shutdown":
                 # Trigger server shutdown gracefully
                 response_data = {"success": True, "message": "Server shutting down"}

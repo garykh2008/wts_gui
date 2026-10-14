@@ -283,10 +283,12 @@ async function checkBackendStatus() {
 
         // Vendor comparison spans multiple test days -> default to ~1 month back.
         const compareDateEl = document.getElementById('compare-date-input');
-        if (compareDateEl && !compareDateEl.value) {
-            const cd = new Date();
-            cd.setMonth(cd.getMonth() - 1);
-            compareDateEl.value = cd.toISOString().split('T')[0];
+        if (compareDateEl) {
+            compareDateEl.value = res.settings.compare_filter_date || (() => {
+                const cd = new Date();
+                cd.setMonth(cd.getMonth() - 1);
+                return cd.toISOString().split('T')[0];
+            })();
         }
         
         // Load default exclusions
@@ -1054,6 +1056,77 @@ function updateExecStats(resetResults = true) {
     // Persist the selection/filters on every change so a page reload restores them.
     saveSelectionState();
 }
+
+// ---- Date-filter persistence ----
+//
+// Each tab's "since" date is remembered the moment it changes, so a filter
+// survives a reload without the user having to press Scan / Build / Refresh.
+// Writes are debounced because a date picker can fire change repeatedly while
+// the user steps through months/weeks, with a flush on page hide so a pending
+// write is never lost when the tab closes immediately after an edit.
+const DATE_FILTER_INPUTS = {
+    'log-date-filter': 'log_filter_date',
+    'analytics-date-input': 'result_filter_date',
+    'compare-date-input': 'compare_filter_date'
+};
+
+const dateSaveTimers = {};
+const dateSavedValues = {};
+
+function dateFilterPayload(inputId) {
+    const key = DATE_FILTER_INPUTS[inputId];
+    const el = document.getElementById(inputId);
+    if (!key || !el) return null;
+    return { key, value: el.value, payload: JSON.stringify({ settings: { [key]: el.value } }) };
+}
+
+async function flushDateFilter(inputId) {
+    const req = dateFilterPayload(inputId);
+    if (!req) return;
+
+    dateSavedValues[inputId] = req.value;
+    await apiFetch('/api/settings/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: req.payload
+    });
+}
+
+function saveDateFilter(inputId) {
+    if (!DATE_FILTER_INPUTS[inputId]) return;
+
+    clearTimeout(dateSaveTimers[inputId]);
+    dateSaveTimers[inputId] = setTimeout(() => {
+        dateSaveTimers[inputId] = null;
+        flushDateFilter(inputId);
+    }, 400);
+}
+
+Object.keys(DATE_FILTER_INPUTS).forEach(inputId => {
+    const el = document.getElementById(inputId);
+    if (el) el.addEventListener('change', () => saveDateFilter(inputId));
+});
+
+// A debounced write would be dropped when the tab closes right after a change,
+// so flush pending dates with sendBeacon (built to outlive the page) rather
+// than fetch, which the browser may cancel mid-unload.
+window.addEventListener('pagehide', () => {
+    Object.keys(DATE_FILTER_INPUTS).forEach(inputId => {
+        const req = dateFilterPayload(inputId);
+        if (!req) return;
+
+        const pending = dateSaveTimers[inputId] && req.value !== dateSavedValues[inputId];
+        if (!pending) return;
+
+        clearTimeout(dateSaveTimers[inputId]);
+        dateSaveTimers[inputId] = null;
+
+        const blob = new Blob([req.payload], { type: 'application/json' });
+        if (!navigator.sendBeacon('/api/settings/save', blob)) {
+            flushDateFilter(inputId);
+        }
+    });
+});
 
 // ---- Selection & filter persistence (per config path) ----
 
@@ -2035,14 +2108,9 @@ async function scanCompareData() {
         return;
     }
     const role = document.querySelector('#compare-role-selector .role-btn.active').getAttribute('data-role');
-    let startDate = document.getElementById('compare-date-input').value;
-    if (!startDate) {
-        // Default to the analytics date so the matrix has a sensible window.
-        startDate = document.getElementById('analytics-date-input').value || '';
-        document.getElementById('compare-date-input').value = startDate;
-    }
+    const startDate = document.getElementById('compare-date-input').value;
 
-    const url = `/api/results?role=${role}&startDate=${startDate}&path=${encodeURIComponent(state.configPath)}`;
+    const url = `/api/results?role=${role}&startDate=${startDate}&scope=compare&path=${encodeURIComponent(state.configPath)}`;
     showNotification('Building vendor matrix...', 'blue');
     const res = await apiFetch(url);
     if (res && !res.error) {
