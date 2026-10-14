@@ -46,6 +46,7 @@ CURRENT_RUN_BASELINE_FOLDERS = set()
 # Session Settings File
 SETTINGS_FILE = "wts_gui.settings.json"
 SESSION_SETTINGS = {}
+SETTINGS_LOCK = threading.Lock()
 
 # Keys /api/settings/save is allowed to write. Deliberately excludes
 # config_path and config_presets, which have dedicated endpoints and would be
@@ -104,13 +105,19 @@ def init_paths():
         logger.debug(f"Session settings file does not exist.")
 
 def save_session():
+    # Settings are written from several request threads (date filters, config
+    # path, presets), so serialise and write via a temp file + atomic replace:
+    # a plain truncate-and-write can leave an empty/partial JSON file if two
+    # writes overlap or the process dies mid-write.
     try:
-        settings_path = os.path.join(DATA_DIR, SETTINGS_FILE)
-        logger.debug(f"Saving session settings to: {settings_path}")
-        logger.debug(f"Session settings content: {SESSION_SETTINGS}")
-        with open(settings_path, 'w', encoding='utf-8') as f:
-            json.dump(SESSION_SETTINGS, f, indent=4)
-        logger.debug(f"Session settings saved successfully.")
+        with SETTINGS_LOCK:
+            settings_path = os.path.join(DATA_DIR, SETTINGS_FILE)
+            logger.debug(f"Saving session settings to: {settings_path}")
+            tmp_path = settings_path + ".tmp"
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(SESSION_SETTINGS, f, indent=4)
+            os.replace(tmp_path, settings_path)
+            logger.debug(f"Session settings saved successfully.")
     except Exception as e:
         logger.error(f"Failed to save session settings: {e}")
 
