@@ -73,6 +73,7 @@ This tool supports cross-platform execution, including **Windows (Native / WSL)*
 3.  The list will display the latest status (PASS/FAIL/NT) for each test case.
 4.  **Export Results**: Click the **Export Result** button to save the current analysis data, including statistics and formatting, to an Excel (.xlsx) file.
 5.  **View History**: Right-click on a test case result to view its detailed past execution records and associated log folders.
+6.  **Upload to TMS**: Use the cloud icon on a row (that row's result) or **Upload to TMS** on the toolbar (most recent result) to re-upload a past result without re-running the test. The dialog shows the `TmsClient` command and lets you adjust the program name / test case ID before uploading. If **Sync with TMS Portal** is off, it is switched on for the upload and turned back off afterwards.
 
 ### 4. Log Viewer (Viewing Logs)
 1.  Select a log folder from the left-hand side (can be filtered by date).
