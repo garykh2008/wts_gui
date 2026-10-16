@@ -1809,6 +1809,9 @@ function renderAnalyticsTable(results) {
                 ${item.logFolder ? `<button class="btn btn-secondary btn-xs icon-only open-result-log-btn" title="Open this test's log">
                     <i data-lucide="file-text"></i>
                 </button>` : ''}
+                ${item.logFolder ? `<button class="btn btn-secondary btn-xs icon-only tms-upload-row-btn" title="Upload this result to TMS">
+                    <i data-lucide="upload-cloud"></i>
+                </button>` : ''}
                 <button class="btn btn-secondary btn-xs icon-only view-history-btn" data-case="${esc(item.case)}" title="Execution History">
                     <i data-lucide="history"></i>
                 </button>
@@ -1827,6 +1830,9 @@ function renderAnalyticsTable(results) {
             tr.querySelector('.open-result-log-btn').addEventListener('click', () => {
                 openLogForResult(item.case, item.logFolder);
             });
+            tr.querySelector('.tms-upload-row-btn').addEventListener('click', () => {
+                openTmsUploadModal(item);
+            });
         }
     });
     
@@ -1839,6 +1845,10 @@ function renderAnalyticsTable(results) {
     } else {
         document.getElementById('export-results-btn').disabled = false;
     }
+
+    // Uploading needs a row with a log folder to derive the TmsClient args from.
+    document.getElementById('tms-upload-btn').disabled =
+        !state.analyticsVisible.some(r => r.logFolder);
     
     lucide.createIcons();
     
@@ -2655,6 +2665,110 @@ function openTmsPortal() {
 
 document.getElementById('open-tms-portal-btn').addEventListener('click', openTmsPortal);
 document.getElementById('analytics-tms-portal-btn').addEventListener('click', openTmsPortal);
+
+// ==================== Manual TMS Upload ====================
+
+// Derive TmsClient's two args from a run folder name, mirroring the backend's
+// parse_tms_run_args: '<timestamp>_<TestCaseId>_<RESULT>' -> UHR + UHR-4.8.1_5G.
+function deriveTmsUploadArgs(folder) {
+    let name = (folder || '').trim();
+    name = name.replace(/^(?:\d{4}-\d{2}-\d{2}[T_]\d{2}[-:]\d{2}[-:]\d{2}Z?|\d{4}-\d{2}-\d{2}|[A-Za-z]{3}-\d{1,2}-\d{4})_/, '');
+    name = name.replace(/[_-]?(PASS|FAIL)$/i, '').trim();
+    if (!name) return null;
+    const program = name.split('-')[0].trim();
+    if (!program) return null;
+    return { program: program, testCaseId: name };
+}
+
+let tmsUploadTarget = null;
+
+function tmsUploadCommandPreview() {
+    const program = document.getElementById('tms-upload-program').value.trim();
+    const caseId = document.getElementById('tms-upload-testcaseid').value.trim();
+    return `./TmsClient -d 4 -wfaStaffManualRun ${program || '<program>'} ${caseId || '<test-case-id>'}`;
+}
+
+function refreshTmsUploadPreview() {
+    document.getElementById('tms-upload-command').value = tmsUploadCommandPreview();
+}
+
+function openTmsUploadModal(item) {
+    const derived = deriveTmsUploadArgs(item.logFolder);
+
+    tmsUploadTarget = item;
+    document.getElementById('tms-upload-case').value = item.case;
+    document.getElementById('tms-upload-folder').value = item.logFolder;
+    document.getElementById('tms-upload-program').value = derived ? derived.program : '';
+    document.getElementById('tms-upload-testcaseid').value = derived ? derived.testCaseId : '';
+    document.getElementById('tms-upload-output-wrap').style.display = 'none';
+    document.getElementById('tms-upload-output').value = '';
+    refreshTmsUploadPreview();
+
+    const btn = document.getElementById('tms-upload-confirm-btn');
+    btn.disabled = !derived;
+    if (!derived) {
+        showNotification('Could not derive ProgramName / TestCaseId from that log folder — fill them in manually.', 'orange');
+    }
+
+    openModal('tms-upload-modal');
+}
+
+document.getElementById('tms-upload-program').addEventListener('input', refreshTmsUploadPreview);
+document.getElementById('tms-upload-testcaseid').addEventListener('input', refreshTmsUploadPreview);
+
+document.getElementById('tms-upload-confirm-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('tms-upload-confirm-btn');
+    const program = document.getElementById('tms-upload-program').value.trim();
+    const caseId = document.getElementById('tms-upload-testcaseid').value.trim();
+    if (!program || !caseId) {
+        showNotification('Program Name and Test Case ID are both required.', 'orange');
+        return;
+    }
+
+    btn.disabled = true;
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i data-lucide="loader-2"></i><span>Uploading…</span>';
+    lucide.createIcons();
+    showNotification('Uploading last result to TMS portal...', 'blue');
+
+    const res = await apiFetch('/api/tms/upload-last-result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ program: program, testCaseId: caseId })
+    });
+
+    btn.disabled = false;
+    btn.innerHTML = original;
+    lucide.createIcons();
+
+    const outWrap = document.getElementById('tms-upload-output-wrap');
+    outWrap.style.display = 'block';
+    document.getElementById('tms-upload-output').value =
+        (res && (res.output || res.error)) ? (res.output || res.error) : '(no output)';
+
+    if (res && res.success) {
+        const restored = res.restoredDisabled ? ' Sync with TMS Portal restored to OFF.' : '';
+        showNotification(`Uploaded ${caseId} to TMS.${restored}`, 'green');
+        // The toggle may have flipped and flipped back; refresh so the UI agrees.
+        await loadTmsConfig();
+    } else {
+        showNotification(`TMS upload failed: ${(res && res.error) || 'unknown error'}`, 'red');
+    }
+});
+
+// Header button on the Analytics toolbar: upload the most recent result across
+// all visible rows that have one.
+document.getElementById('tms-upload-btn').addEventListener('click', () => {
+    const rows = state.analyticsVisible || [];
+    const withLog = rows.filter(r => r.logFolder);
+    if (withLog.length === 0) {
+        showNotification('No scanned result has a log folder to upload.', 'orange');
+        return;
+    }
+    // Prefer an actual result over an NT/Not Support row with a stale folder.
+    const target = withLog.find(r => r.status === 'PASS' || r.status === 'FAIL') || withLog[0];
+    openTmsUploadModal(target);
+});
 
 
 // ==================== User Guide Logic ====================

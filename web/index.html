@@ -379,6 +379,10 @@
                                         <i data-lucide="download"></i>
                                         <span>Export XLSX</span>
                                     </button>
+                                    <button class="btn btn-secondary ml-2" id="tms-upload-btn" disabled>
+                                        <i data-lucide="upload-cloud"></i>
+                                        <span>Upload to TMS</span>
+                                    </button>
                                     <button class="btn btn-secondary ml-2" id="analytics-tms-portal-btn">
                                         <i data-lucide="external-link"></i>
                                         <span>TMS Portal</span>
@@ -822,6 +826,47 @@
         </div>
         <div class="modal-footer">
             <button class="btn btn-primary" data-modal="raw-config-modal">Close</button>
+        </div>
+    </div>
+
+    <!-- 6b. Manual TMS Upload -->
+    <div class="modal" id="tms-upload-modal">
+        <div class="modal-header">
+            <h3>Upload Last Result to TMS</h3>
+            <button class="modal-close" data-modal="tms-upload-modal"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body flex-column gap-4">
+            <div class="form-group">
+                <label class="form-label">Test Case</label>
+                <input type="text" id="tms-upload-case" class="form-control" readonly>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Log Folder</label>
+                <input type="text" id="tms-upload-folder" class="form-control" readonly>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Program Name</label>
+                <input type="text" id="tms-upload-program" class="form-control">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Test Case ID</label>
+                <input type="text" id="tms-upload-testcaseid" class="form-control">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Command</label>
+                <textarea id="tms-upload-command" class="raw-code-view" rows="2" readonly></textarea>
+            </div>
+            <div class="form-group" id="tms-upload-output-wrap" style="display: none;">
+                <label class="form-label">Output</label>
+                <textarea id="tms-upload-output" class="raw-code-view" rows="8" readonly></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" data-modal="tms-upload-modal">Cancel</button>
+            <button class="btn btn-primary" id="tms-upload-confirm-btn">
+                <i data-lucide="upload-cloud"></i>
+                <span>Upload</span>
+            </button>
         </div>
     </div>
 

@@ -199,6 +199,103 @@ def parse_tms_conf(path):
                 records.append({'index': idx, 'original': line, 'key': k, 'value': v, 'type': t})
     return records
 
+def tms_upload_is_enabled(tms_conf_path):
+    """True when TmsClient.conf has TMS_feature=FTP_feature=Enabled.
+
+    Mirrors the check behind the "Sync with TMS Portal" toggle and the
+    /api/tms-config endpoint so both agree on what "enabled" means.
+    """
+    return any(
+        r["key"] == "TMS_feature" and r["value"].lower() == "enabled"
+        for r in parse_tms_conf(tms_conf_path) if r["type"] == "kv_pair"
+    )
+
+def set_tms_upload_enabled(tms_conf_path, enabled):
+    """Write TMS_feature / FTP_feature = Enabled|Disabled, preserving the file.
+
+    Returns True on success. Only the value of those two keys is touched, so
+    comments and unrelated lines survive untouched.
+    """
+    en_str = "Enabled" if enabled else "Disabled"
+    try:
+        tms_data = parse_tms_conf(tms_conf_path)
+        changed = False
+        for i, d in enumerate(tms_data):
+            if d['key'] in ('TMS_feature', 'FTP_feature'):
+                tms_data[i]['value'] = en_str
+                changed = True
+        if not changed:
+            return False
+        with open(tms_conf_path, 'w', encoding='utf-8', newline='\n') as f:
+            for d in tms_data:
+                f.write(f"{d['key']}={d['value']}\n" if d['type'] == 'kv_pair' else d['original'])
+        return True
+    except Exception as e:
+        logger.error(f"Failed to set TMS upload enabled={enabled}: {e}")
+        return False
+
+# TmsClient jobs upload one test case and can hand off to the portal, so allow
+# well beyond the usual few seconds before giving up.
+TMS_UPLOAD_TIMEOUT = 180
+
+def upload_tms_result(program, test_case_id):
+    """Run TmsClient -wfaStaffManualRun for one case and report the outcome.
+
+    TmsClient only uploads while Sync with TMS Portal is on, so when the user
+    has it switched off (common while debugging) it is turned on just for this
+    run and restored to disabled afterwards.
+
+    Returns the response dict; never raises.
+    """
+    wts_paths = get_active_wts_paths()
+    bin_dir = wts_paths["bin_dir"]
+    tms_conf_path = wts_paths["tms_conf"]
+    tms_exe = os.path.join(bin_dir, "TmsClient.exe" if os.name == 'nt' else "TmsClient")
+
+    if not os.path.exists(tms_exe):
+        return {"error": f"TmsClient not found at {tms_exe}"}
+
+    was_enabled = tms_upload_is_enabled(tms_conf_path)
+    if not was_enabled and not set_tms_upload_enabled(tms_conf_path, True):
+        return {"error": "Could not enable TMS upload in TmsClient.conf"}
+
+    cmd = [tms_exe, "-d", "4", "-wfaStaffManualRun", program, test_case_id]
+    cmd_to_run = cmd
+    if os.name == 'nt' and not tms_exe.lower().endswith('.exe'):
+        # Native Linux TmsClient build on Windows -> run it through WSL.
+        cmd_to_run = ["wsl.exe", to_wsl_path(tms_exe)] + cmd[1:]
+
+    logger.info(f"Manual TMS upload: {' '.join(cmd)} (cwd={bin_dir}, enabled_for_run={not was_enabled})")
+    result = None
+    try:
+        proc = subprocess.run(
+            cmd_to_run, cwd=bin_dir, capture_output=True, text=True,
+            timeout=TMS_UPLOAD_TIMEOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        )
+        output = ((proc.stdout or "") + (proc.stderr or "")).strip()
+        if proc.returncode == 0:
+            result = {"success": True, "command": ' '.join(cmd), "output": output[-4000:]}
+        else:
+            result = {
+                "error": f"TmsClient exited with code {proc.returncode}",
+                "command": ' '.join(cmd),
+                "output": output[-4000:],
+            }
+    except subprocess.TimeoutExpired:
+        result = {"error": f"TmsClient timed out after {TMS_UPLOAD_TIMEOUT}s"}
+    except Exception as e:
+        result = {"error": f"Failed to run TmsClient: {e}"}
+    finally:
+        # Restore the user's setting even if the upload failed or timed out.
+        if not was_enabled:
+            restored = set_tms_upload_enabled(tms_conf_path, False)
+            logger.info(f"TMS upload sync restored to disabled: {restored}")
+            result["restoredDisabled"] = bool(restored)
+
+    return result
+
+
 def parse_tms_result(path):
     """Parse a tms_<case>.json result file into a normalized dict, or None.
 
@@ -240,6 +337,44 @@ _EMPTY_RESULT_META = {
     "message": "", "dutCompany": "", "dutModel": "", "dutCategory": "",
     "testbedCompany": "", "testbedModel": "", "timestamp": "",
 }
+
+def parse_tms_run_args(folder_name):
+    """Derive TmsClient's <program> <testCaseId> args from a log folder name.
+
+    A run folder is named '<timestamp>_<TestCaseId>_<RESULT>', e.g.
+    '2026-07-31T01-45-50Z_UHR-4.2.1_5G_FAIL'. TmsClient wants the program name
+    separately from the case id:
+
+        TmsClient -d 4 -wfaStaffManualRun UHR UHR-4.2.1_5G
+
+    Returns {"program", "testCaseId"} or None when the name is not parseable.
+    """
+    name = (folder_name or "").strip()
+    if not name:
+        return None
+
+    # Drop the leading run timestamp, in whichever form the run folders use:
+    #   2026-07-31T01-45-50Z_  /  2026-07-31_  /  Jun-26-2026_
+    name = re.sub(
+        r'^(?:\d{4}-\d{2}-\d{2}[T_]\d{2}[-:]\d{2}[-:]\d{2}Z?'
+        r'|\d{4}-\d{2}-\d{2}'
+        r'|[A-Za-z]{3}-\d{1,2}-\d{4})_',
+        '', name, count=1
+    ).strip()
+
+    # Drop the trailing PASS/FAIL marker (with or without the separator, so a
+    # name that was only a timestamp plus marker does not survive as "FAIL").
+    name = re.sub(r'[_-]?(PASS|FAIL)$', '', name, flags=re.IGNORECASE).strip()
+    if not name:
+        return None
+
+    # The program name is the prefix before the first '-': UHR-4.2.1_5G -> UHR.
+    program = name.split('-', 1)[0].strip()
+    if not program:
+        return None
+
+    return {"program": program, "testCaseId": name}
+
 
 def parse_log_result(path):
     """Determine PASS/FAIL from a log_<case>.log file, or None if unfinished."""
@@ -947,10 +1082,7 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                 if not os.path.exists(tms_conf_path):
                     logger.error(f"/api/tms-config: File not found at {tms_conf_path}")
                 tms_records = parse_tms_conf(tms_conf_path)
-                tms_upload_enabled = any(
-                    r["key"] == "TMS_feature" and r["value"].lower() == "enabled"
-                    for r in tms_records if r["type"] == "kv_pair"
-                )
+                tms_upload_enabled = tms_upload_is_enabled(tms_conf_path)
                 tms_tree = [
                     {"index": r["index"], "key": r["key"], "value": r["value"],
                      "type": r["type"], "original": r["original"]}
@@ -1431,23 +1563,32 @@ class WtsHTTPRequestHandler(BaseHTTPRequestHandler):
                     
             elif path == "/api/tms-config/toggle-upload":
                 enabled = body.get("enabled", False)
-                en_str = "Enabled" if enabled else "Disabled"
                 tms_conf_path = get_active_wts_paths()["tms_conf"]
-                try:
-                    tms_data = parse_tms_conf(tms_conf_path)
-
-                    for i, d in enumerate(tms_data):
-                        if d['key'] in ['TMS_feature', 'FTP_feature']:
-                            tms_data[i]['value'] = en_str
-                            
-                    with open(tms_conf_path, 'w', encoding='utf-8', newline='\n') as f:
-                        for d in tms_data:
-                            f.write(f"{d['key']}={d['value']}\n" if d['type'] == 'kv_pair' else d['original'])
-                            
+                if set_tms_upload_enabled(tms_conf_path, enabled):
                     response_data = {"success": True}
-                except Exception as e:
-                    response_data = {"error": str(e)}
-                    
+                else:
+                    response_data = {"error": "Could not update TmsClient.conf"}
+
+            elif path == "/api/tms/upload-last-result":
+                # Manually (re-)upload one test case's most recent result, the
+                # equivalent of running in <bin>:
+                #     ./TmsClient -d 4 -wfaStaffManualRun UHR UHR-4.8.1_5G
+                program = body.get("program", "")
+                test_case_id = body.get("testCaseId", "")
+
+                # Derive both args from the run folder name when not supplied.
+                if not program or not test_case_id:
+                    derived = parse_tms_run_args(body.get("folder", ""))
+                    if derived:
+                        program = program or derived["program"]
+                        test_case_id = test_case_id or derived["testCaseId"]
+
+                if not program or not test_case_id:
+                    response_data = {"error": "Could not determine ProgramName / TestCaseId. "
+                                              "Pick a row with a log folder, or supply them explicitly."}
+                else:
+                    response_data = upload_tms_result(program, test_case_id)
+
             elif path == "/api/logs/delete-file":
                 folder = body.get("folder", "")
                 file_name = body.get("file", "")
